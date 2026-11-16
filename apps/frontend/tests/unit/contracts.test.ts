@@ -34,17 +34,27 @@ describe("contract consumer", () => {
       validate("LongReviewView", review("candidate", status));
   });
 
-  test("generated validation is bound to the actual shared schema", async () => {
-    const text = await readFile(
-      new URL(
-        "../../../intelligence/src/auralisy_intelligence/contracts/agent-v1.schema.json",
-        import.meta.url,
-      ),
-    );
-    expect(createHash("sha256").update(text).digest("hex")).toBe(
-      provenance.schema_sha256,
-    );
-  });
+  test.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])(
+    "generated validation is bound to the actual shared schema with %s endings",
+    async (_label, ending) => {
+      const text = await readFile(
+        new URL(
+          "../../../intelligence/src/auralisy_intelligence/contracts/agent-v1.schema.json",
+          import.meta.url,
+        ),
+        "utf8",
+      );
+      const source = text.replace(/\r\n/g, "\n").replace(/\n/g, ending);
+      expect(
+        createHash("sha256")
+          .update(source.replace(/\r\n/g, "\n"))
+          .digest("hex"),
+      ).toBe(provenance.schema_sha256);
+    },
+  );
 
   test("API uses same-origin credentials and CSRF; validates writes before sending", async () => {
     const calls: { url: string; options: RequestInit }[] = [];

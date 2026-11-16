@@ -8,18 +8,23 @@ import addFormats from "ajv-formats";
 import standaloneCode from "ajv/dist/standalone/index.js";
 import { compile } from "json-schema-to-typescript";
 
+// Match Git's LF representation even if a Windows editor wrote CRLF.
 const root = new URL("../../", import.meta.url);
-const schemaText = await readFile(
-  new URL(
-    "intelligence/src/auralisy_intelligence/contracts/agent-v1.schema.json",
-    root,
-  ),
-  "utf8",
-);
-const apiText = await readFile(
-  new URL("../contracts/agent-product-api.openapi.json", root),
-  "utf8",
-);
+const schemaText = (
+  await readFile(
+    new URL(
+      "intelligence/src/auralisy_intelligence/contracts/agent-v1.schema.json",
+      root,
+    ),
+    "utf8",
+  )
+).replace(/\r\n/g, "\n");
+const apiText = (
+  await readFile(
+    new URL("../contracts/agent-product-api.openapi.json", root),
+    "utf8",
+  )
+).replace(/\r\n/g, "\n");
 const schema = JSON.parse(schemaText);
 const api = JSON.parse(apiText);
 const ajv = new Ajv({
