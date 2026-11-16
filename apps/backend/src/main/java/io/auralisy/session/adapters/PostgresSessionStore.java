@@ -42,7 +42,7 @@ public class PostgresSessionStore implements SessionStore {
             Instant at,
             Instant expires) {
         ShortTransactions.requireWrite();
-        lockSubject(subject);
+        lockOwner(subject);
         Integer valid =
                 jdbc.queryForObject(
                         "SELECT count(*) FROM discovery.subject WHERE id=? AND lifecycle='ACTIVE' AND expires_at>clock_timestamp()",
@@ -66,15 +66,17 @@ public class PostgresSessionStore implements SessionStore {
                 subject);
     }
 
-    private void lockSubject(String subject) {
+    @Override
+    public boolean lockOwner(String subject) {
         LockOrder.before(LockOrder.Level.SUBJECT, subject);
-        jdbc.queryForList("SELECT id FROM discovery.subject WHERE id=? FOR UPDATE", subject);
+        return !jdbc.queryForList("SELECT id FROM discovery.subject WHERE id=? FOR UPDATE", subject)
+                .isEmpty();
     }
 
     @Override
     public Scope lockRefreshed(Scope original) {
         ShortTransactions.requireWrite();
-        lockSubject(original.subjectId());
+        lockOwner(original.subjectId());
         var scope = refresh(original);
         lockActive(scope);
         return scope;
@@ -82,7 +84,7 @@ public class PostgresSessionStore implements SessionStore {
 
     @Override
     public View lockActive(Scope scope) {
-        lockSubject(scope.subjectId());
+        lockOwner(scope.subjectId());
         LockOrder.before(LockOrder.Level.SESSION, scope.sessionId());
         var rows =
                 jdbc.query(
@@ -166,7 +168,7 @@ public class PostgresSessionStore implements SessionStore {
     public boolean close(Scope scope, String status) {
         if (!java.util.Set.of("SUPERSEDED", "DELETED", "EXPIRED").contains(status))
             throw new IllegalArgumentException("INVALID_TERMINAL_STATE");
-        lockSubject(scope.subjectId());
+        lockOwner(scope.subjectId());
         LockOrder.before(LockOrder.Level.SESSION, scope.sessionId());
         entities.flush();
         int changed =
@@ -190,7 +192,7 @@ public class PostgresSessionStore implements SessionStore {
 
     @Override
     public boolean revokeSubject(String subject, long revision, long epoch) {
-        lockSubject(subject);
+        lockOwner(subject);
         entities.flush();
         int changed =
                 jdbc.update(
@@ -204,7 +206,7 @@ public class PostgresSessionStore implements SessionStore {
 
     @Override
     public boolean purgeSubject(String subject, long epoch) {
-        lockSubject(subject);
+        lockOwner(subject);
         entities.flush();
         int changed =
                 jdbc.update(
@@ -217,7 +219,7 @@ public class PostgresSessionStore implements SessionStore {
 
     @Override
     public boolean purgeSession(Scope scope) {
-        lockSubject(scope.subjectId());
+        lockOwner(scope.subjectId());
         LockOrder.before(LockOrder.Level.SESSION, scope.sessionId());
         entities.flush();
         int changed =
@@ -295,7 +297,7 @@ public class PostgresSessionStore implements SessionStore {
     public void scheduleDeletion(String id, Scope scope, Instant at) {
         ShortTransactions.requireWrite();
         // May run after a barrier: no content is restored, only bounded cleanup metadata is stored.
-        lockSubject(scope.subjectId());
+        lockOwner(scope.subjectId());
         int inserted =
                 jdbc.update(
                         "INSERT INTO discovery.deletion_job(id,subject_id,session_id,barrier_epoch,next_attempt_at) "
@@ -338,7 +340,7 @@ public class PostgresSessionStore implements SessionStore {
                         String.class,
                         sessionId);
         if (owners.isEmpty()) return;
-        lockSubject(owners.getFirst());
+        lockOwner(owners.getFirst());
         LockOrder.before(LockOrder.Level.SESSION, sessionId);
         jdbc.queryForList(
                 "SELECT id FROM discovery.session WHERE id=? AND subject_id=? FOR UPDATE",

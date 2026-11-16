@@ -156,7 +156,6 @@ public class PostgresPublicationAuthority implements PublicationAuthority {
             fail("INVALID_PAYLOAD");
         return tx.write(
                 () -> {
-                    discovery.lockRuntime();
                     sessions.lockActive(s);
                     if (jdbc.queryForObject(
                                     "SELECT count(*) FROM discovery.publication_round WHERE round_id=?",
@@ -184,7 +183,6 @@ public class PostgresPublicationAuthority implements PublicationAuthority {
             Scope s, String r, String run, int target, CuratedRecommendations.Batch batch) {
         return tx.write(
                 () -> {
-                    discovery.lockRuntime();
                     sessions.lockActive(s);
                     begin(s, r, run, target, "RUNNING");
                     var current = sessions.refresh(s);
@@ -261,7 +259,6 @@ public class PostgresPublicationAuthority implements PublicationAuthority {
                         .equals(bundle.path("digest").asText())) fail("BINDING_MISMATCH");
         tx.write(
                 () -> {
-                    discovery.lockRuntime();
                     var c = current(original);
                     guard(c);
                     var s = c.execution().evidence().scope();
@@ -720,7 +717,6 @@ public class PostgresPublicationAuthority implements PublicationAuthority {
         String hash = digest(request);
         return tx.write(
                 () -> {
-                    discovery.lockRuntime();
                     var latest = sessions.refresh(s);
                     var previous = sessions.command(latest, operation, command, hash);
                     if (previous.isPresent()) return previous.get();
@@ -863,7 +859,6 @@ public class PostgresPublicationAuthority implements PublicationAuthority {
     public void continueAfterTail(Scope s, String r, String tail, Supply supply) {
         tx.write(
                 () -> {
-                    discovery.lockRuntime();
                     sessions.lockActive(s);
                     var current = round(s, r);
                     String first = (String) current.get("progressive_start_slot");
@@ -912,7 +907,6 @@ public class PostgresPublicationAuthority implements PublicationAuthority {
     public String undoLastCard(Scope s, String r) {
         return tx.write(
                 () -> {
-                    discovery.lockRuntime();
                     sessions.lockActive(s);
                     var records =
                             jdbc.queryForList(
@@ -1010,7 +1004,6 @@ public class PostgresPublicationAuthority implements PublicationAuthority {
     public void prioritizeLong(Scope s, String r, String candidate, String command) {
         tx.write(
                 () -> {
-                    discovery.lockRuntime();
                     sessions.lockActive(s);
                     jdbc
                             .queryForList(
@@ -1030,7 +1023,6 @@ public class PostgresPublicationAuthority implements PublicationAuthority {
     public String regenerate(Scope s, String r, String candidate, Supply supply) {
         return tx.write(
                 () -> {
-                    discovery.lockRuntime();
                     sessions.lockActive(s);
                     var rows =
                             jdbc.queryForList(
@@ -1078,7 +1070,6 @@ public class PostgresPublicationAuthority implements PublicationAuthority {
             fail("BINDING_MISMATCH");
         return tx.write(
                 () -> {
-                    discovery.lockRuntime();
                     var c = current(original);
                     var e = c.execution().evidence();
                     var s = e.scope();
@@ -1701,7 +1692,6 @@ public class PostgresPublicationAuthority implements PublicationAuthority {
     public String waitFor(Scope s, String r, String run) {
         return tx.write(
                 () -> {
-                    discovery.lockRuntime();
                     sessions.lockActive(s);
                     jdbc.update(
                             "UPDATE discovery.publication_round SET run_id=?,status='WAITING',supply_state='SUPPLYING',reason=NULL WHERE round_id=? AND session_id=?",
@@ -1716,7 +1706,6 @@ public class PostgresPublicationAuthority implements PublicationAuthority {
     public String fail(Scope s, String r, String reason) {
         return tx.write(
                 () -> {
-                    discovery.lockRuntime();
                     sessions.lockActive(s);
                     var row = round(s, r);
                     jdbc.update(
@@ -1901,7 +1890,6 @@ public class PostgresPublicationAuthority implements PublicationAuthority {
     public void scheduleLongs(Scope scope, String round, Set<String> candidates, Supply supply) {
         tx.write(
                 () -> {
-                    discovery.lockRuntime();
                     sessions.lockActive(scope);
                     var eligible = new TreeSet<String>();
                     for (String id : candidates)

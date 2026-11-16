@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.auralisy.contracts.MessageDefinitions;
-import io.auralisy.discovery.api.DiscoveryStore;
 import io.auralisy.discovery.api.SessionExecutions;
 import io.auralisy.persistence.PersistenceRejected;
 import io.auralisy.persistence.ShortTransactions;
@@ -16,6 +15,7 @@ import io.auralisy.session.domain.SubjectCredentials;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -26,7 +26,6 @@ public class SubjectSessions implements SubjectSession {
     private static final Duration RETENTION = Duration.ofDays(30);
     private final SubjectRepository subjects;
     private final SessionStore sessions;
-    private final DiscoveryStore discovery;
     private final SessionExecutions executions;
     private final RecoveryProjection projection;
     private final ShortTransactions tx;
@@ -40,7 +39,6 @@ public class SubjectSessions implements SubjectSession {
     public SubjectSessions(
             SubjectRepository subjects,
             SessionStore sessions,
-            DiscoveryStore discovery,
             SessionExecutions executions,
             RecoveryProjection projection,
             ShortTransactions tx,
@@ -52,7 +50,6 @@ public class SubjectSessions implements SubjectSession {
             java.util.List<io.auralisy.session.api.SessionDerivation> derivations) {
         this.subjects = subjects;
         this.sessions = sessions;
-        this.discovery = discovery;
         this.executions = executions;
         this.projection = projection;
         this.tx = tx;
@@ -234,14 +231,16 @@ public class SubjectSessions implements SubjectSession {
     }
 
     @Override
-    public Replacement replace(
-            String token,
-            String csrf,
-            String key,
-            String expected,
-            long revision,
-            String input,
-            String resolved) {
+    public Optional<Replacement> replaySubmission(
+            String token, String csrf, String key, String expected, long revision, String input) {
+        var submission = submission(token, csrf, key, expected, revision, input);
+        return tx.write(() -> replay(require(token, true), key, submission.digest()));
+    }
+
+    private record Submission(ObjectNode input, String digest) {}
+
+    private Submission submission(
+            String token, String csrf, String key, String expected, long revision, String input) {
         csrf(token, csrf);
         if (key == null
                 || key.isBlank()
@@ -249,7 +248,6 @@ public class SubjectSessions implements SubjectSession {
                 || revision < 0
                 || revision > Integer.MAX_VALUE) throw new PersistenceRejected("INVALID_PAYLOAD");
         var incoming = parse(input, "DiscoveryInput");
-        var canonical = parse(resolved, "RawInput");
         if (incoming.path("liked_genres").isEmpty()
                 && incoming.path("disliked_genre_ids").isEmpty()
                 && incoming.path("liked_albums").isEmpty()
@@ -263,29 +261,48 @@ public class SubjectSessions implements SubjectSession {
                                                 .put("revision", revision)
                                                 .set("input", incoming))
                                 .toString());
+        return new Submission(incoming, digest);
+    }
+
+    private Optional<Replacement> replay(
+            SubjectRepository.Subject subject, String key, String digest) {
+        var receipt = subjects.command(subject.id(), key, digest);
+        if (receipt.isEmpty()) return Optional.empty();
+        try {
+            var r = json.readTree(receipt.get());
+            return Optional.of(
+                    new Replacement(
+                            new SessionStore.Scope(
+                                    subject.id(),
+                                    r.path("session_id").asText(),
+                                    subject.epoch(),
+                                    r.path("epoch").asLong(),
+                                    r.path("revision").asLong()),
+                            r.path("previous").isNull() ? null : r.path("previous").asText(),
+                            true));
+        } catch (java.io.IOException e) {
+            throw new PersistenceRejected("DEPENDENCY_UNAVAILABLE");
+        }
+    }
+
+    @Override
+    public Replacement replace(
+            String token,
+            String csrf,
+            String key,
+            String expected,
+            long revision,
+            String input,
+            String resolved) {
+        var submission = submission(token, csrf, key, expected, revision, input);
+        var incoming = submission.input();
+        var canonical = parse(resolved, "RawInput");
+        String digest = submission.digest();
         return tx.write(
                 () -> {
-                    discovery.lockRuntime();
                     var subject = require(token, true);
-                    var receipt = subjects.command(subject.id(), key, digest);
-                    if (receipt.isPresent()) {
-                        try {
-                            var r = json.readTree(receipt.get());
-                            return new Replacement(
-                                    new SessionStore.Scope(
-                                            subject.id(),
-                                            r.path("session_id").asText(),
-                                            subject.epoch(),
-                                            r.path("epoch").asLong(),
-                                            r.path("revision").asLong()),
-                                    r.path("previous").isNull()
-                                            ? null
-                                            : r.path("previous").asText(),
-                                    true);
-                        } catch (java.io.IOException e) {
-                            throw new PersistenceRejected("DEPENDENCY_UNAVAILABLE");
-                        }
-                    }
+                    var receipt = replay(subject, key, digest);
+                    if (receipt.isPresent()) return receipt.get();
                     if (!java.util.Objects.equals(subject.currentSession(), expected))
                         throw new PersistenceRejected("REVISION_CONFLICT");
                     if (expected == null && revision != 0)
@@ -377,7 +394,6 @@ public class SubjectSessions implements SubjectSession {
         csrf(token, csrf);
         tx.write(
                 () -> {
-                    discovery.lockRuntime();
                     var existing = lookup(token, true);
                     if (existing.isEmpty())
                         return null; // Valid old credential: repeated erase has no effect.
@@ -399,106 +415,134 @@ public class SubjectSessions implements SubjectSession {
     public int cleanup(int limit) {
         if (limit < 1 || limit > 100) throw new IllegalArgumentException("INVALID_BATCH_LIMIT");
         Instant now = clock.instant();
-        for (String id : subjects.expiredSubjects(now, credentials.generation(), limit))
-            tx.write(
-                    () -> {
-                        discovery.lockRuntime();
-                        var s = subjects.lockSubject(id);
-                        if (s.isPresent()
-                                && s.get().lifecycle().equals("ACTIVE")
-                                && (!s.get().expiresAt().isAfter(now)
-                                        || !credentials.generation().equals(s.get().generation())))
-                            barrier(s.get(), "EXPIRED");
-                        return null;
-                    });
-        for (var candidate : subjects.expiredSessions(now, limit))
-            tx.write(
-                    () -> {
-                        discovery.lockRuntime();
-                        var subject = subjects.lockSubject(candidate.subject());
-                        if (subject.isEmpty()) return null;
-                        var s = subjects.session(candidate.subject(), candidate.id());
-                        if (s.isPresent()
-                                && !s.get().expiresAt().isAfter(now)
-                                && java.util.Set.of("ACTIVE", "SUPERSEDED")
-                                        .contains(s.get().status())) {
-                            sessions.close(s.get().scope(subject.get().epoch()), "EXPIRED");
-                            executions.invalidate(List.of(s.get().id()), "EXPIRED");
-                            subjects.enqueueSession(
-                                    subjects.session(candidate.subject(), candidate.id())
-                                            .orElseThrow(),
-                                    now);
-                        }
-                        return null;
-                    });
+        var deferredOwners = new HashSet<String>();
+        for (String id : subjects.expiredSubjects(now, credentials.generation(), limit)) {
+            try {
+                tx.write(
+                        () -> {
+                            var s = subjects.lockSubject(id);
+                            if (s.isPresent()
+                                    && s.get().lifecycle().equals("ACTIVE")
+                                    && (!s.get().expiresAt().isAfter(now)
+                                            || !credentials
+                                                    .generation()
+                                                    .equals(s.get().generation())))
+                                barrier(s.get(), "EXPIRED");
+                            return null;
+                        });
+            } catch (RuntimeException failure) {
+                if (!ShortTransactions.isLockContention(failure)) throw failure;
+                deferredOwners.add(id);
+            }
+        }
+        for (var candidate : subjects.expiredSessions(now, limit)) {
+            if (deferredOwners.contains(candidate.subject())) continue;
+            try {
+                tx.write(
+                        () -> {
+                            var subject = subjects.lockSubject(candidate.subject());
+                            if (subject.isEmpty()) return null;
+                            var s = subjects.session(candidate.subject(), candidate.id());
+                            if (s.isPresent()
+                                    && !s.get().expiresAt().isAfter(now)
+                                    && java.util.Set.of("ACTIVE", "SUPERSEDED")
+                                            .contains(s.get().status())) {
+                                sessions.close(s.get().scope(subject.get().epoch()), "EXPIRED");
+                                executions.invalidate(List.of(s.get().id()), "EXPIRED");
+                                subjects.enqueueSession(
+                                        subjects.session(candidate.subject(), candidate.id())
+                                                .orElseThrow(),
+                                        now);
+                            }
+                            return null;
+                        });
+            } catch (RuntimeException failure) {
+                if (!ShortTransactions.isLockContention(failure)) throw failure;
+                deferredOwners.add(candidate.subject());
+            }
+        }
         int completed = 0;
         for (int n = 0; n < limit; n++) {
-            int result =
-                    tx.write(
-                            () -> {
-                                discovery.lockRuntime();
-                                var next = subjects.nextJob(now);
-                                if (next.isEmpty()) return -1;
-                                var job = next.get();
-                                var subject = subjects.lockSubject(job.subjectId());
-                                if (subject.isEmpty()) {
-                                    subjects.completed(job.id());
-                                    return 1;
-                                }
-                                if (job.sessionId() == null) {
-                                    if (subject.get().lifecycle().equals("ACTIVE")
-                                            || subject.get().epoch() != job.epoch()) {
-                                        subjects.defer(job.id(), now.plusSeconds(30));
-                                        return 0;
+            var candidate = subjects.nextJob(now, deferredOwners);
+            if (candidate.isEmpty()) break;
+            try {
+                int result =
+                        tx.write(
+                                () -> {
+                                    // All cleanup writers use owner -> job, matching erase/expiry.
+                                    // The unlocked candidate may have been deferred or removed.
+                                    var subject = subjects.lockSubject(candidate.get().subjectId());
+                                    var next = subjects.lockJob(candidate.get(), now);
+                                    if (next.isEmpty()) return 0;
+                                    var job = next.get();
+                                    if (subject.isEmpty()) {
+                                        subjects.completed(job.id());
+                                        return 1;
                                     }
-                                    var first = subjects.firstSession(job.subjectId());
-                                    if (first.isPresent()) {
-                                        var session = first.get();
-                                        if (executions.unreleased(List.of(session.id()))) {
+                                    if (job.sessionId() == null) {
+                                        if (subject.get().lifecycle().equals("ACTIVE")
+                                                || subject.get().epoch() != job.epoch()) {
                                             subjects.defer(job.id(), now.plusSeconds(30));
                                             return 0;
                                         }
-                                        if (!java.util.Set.of("DELETED", "EXPIRED")
-                                                .contains(session.status()))
-                                            sessions.close(
-                                                    session.scope(subject.get().epoch()),
-                                                    "DELETED");
-                                        var latest =
-                                                subjects.session(subject.get().id(), session.id())
-                                                        .orElseThrow();
-                                        sessions.purgeSession(latest.scope(subject.get().epoch()));
+                                        var first = subjects.firstSession(job.subjectId());
+                                        if (first.isPresent()) {
+                                            var session = first.get();
+                                            if (executions.unreleased(List.of(session.id()))) {
+                                                subjects.defer(job.id(), now.plusSeconds(30));
+                                                return 0;
+                                            }
+                                            if (!java.util.Set.of("DELETED", "EXPIRED")
+                                                    .contains(session.status()))
+                                                sessions.close(
+                                                        session.scope(subject.get().epoch()),
+                                                        "DELETED");
+                                            var latest =
+                                                    subjects.session(
+                                                                    subject.get().id(),
+                                                                    session.id())
+                                                            .orElseThrow();
+                                            sessions.purgeSession(
+                                                    latest.scope(subject.get().epoch()));
+                                            return 0;
+                                        }
+                                        if (subjects.trimSubjectRows(job.subjectId(), 100) > 0)
+                                            return 0;
+                                    } else if (executions.unreleased(List.of(job.sessionId()))) {
+                                        subjects.defer(job.id(), now.plusSeconds(30));
                                         return 0;
                                     }
-                                    if (subjects.trimSubjectRows(job.subjectId(), 100) > 0)
-                                        return 0;
-                                } else if (executions.unreleased(List.of(job.sessionId()))) {
+                                    boolean purged;
+                                    if (job.sessionId() == null)
+                                        purged =
+                                                sessions.purgeSubject(
+                                                        subject.get().id(), job.epoch());
+                                    else {
+                                        var session =
+                                                subjects.session(
+                                                        subject.get().id(), job.sessionId());
+                                        purged =
+                                                session.isEmpty()
+                                                        || (session.get().epoch() == job.epoch()
+                                                                && sessions.purgeSession(
+                                                                        session.get()
+                                                                                .scope(
+                                                                                        subject.get()
+                                                                                                .epoch())));
+                                    }
+                                    if (purged) {
+                                        subjects.completed(job.id());
+                                        return 1;
+                                    }
                                     subjects.defer(job.id(), now.plusSeconds(30));
                                     return 0;
-                                }
-                                boolean purged;
-                                if (job.sessionId() == null)
-                                    purged = sessions.purgeSubject(subject.get().id(), job.epoch());
-                                else {
-                                    var session =
-                                            subjects.session(subject.get().id(), job.sessionId());
-                                    purged =
-                                            session.isEmpty()
-                                                    || (session.get().epoch() == job.epoch()
-                                                            && sessions.purgeSession(
-                                                                    session.get()
-                                                                            .scope(
-                                                                                    subject.get()
-                                                                                            .epoch())));
-                                }
-                                if (purged) {
-                                    subjects.completed(job.id());
-                                    return 1;
-                                }
-                                subjects.defer(job.id(), now.plusSeconds(30));
-                                return 0;
-                            });
-            if (result < 0) break;
-            completed += result;
+                                });
+                completed += result;
+            } catch (RuntimeException failure) {
+                if (!ShortTransactions.isLockContention(failure)) throw failure;
+                // Only skip this owner for this bounded pass. Preserve its original due time.
+                deferredOwners.add(candidate.get().subjectId());
+            }
         }
         tx.write(
                 () -> {

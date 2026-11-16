@@ -487,6 +487,18 @@ public class Recommendations {
                 && request.path("input").path("request_text").asText().isBlank())
             fail("INPUT_REQUIRED");
         if (!subjects.validCsrf(token, csrf)) fail("FORBIDDEN");
+        var committed =
+                subjects.replaySubmission(
+                        token,
+                        csrf,
+                        key,
+                        request.path("expected_session_id").isNull()
+                                ? null
+                                : request.path("expected_session_id").asText(),
+                        request.path("expected_revision").asLong(),
+                        request.path("input").toString());
+        if (committed.isPresent())
+            return committedState(token, committed.get().scope().sessionId(), key);
         var settings = json(policy.snapshot());
         var requestedInput = request.path("input");
         if (requestedInput.has("audience_reach_percent")) {
@@ -605,7 +617,7 @@ public class Recommendations {
                                 var fixed =
                                         curatedCandidates(
                                                 scope, roundId, snapshot.toString(), config);
-                                String run = scopeId("curated", key);
+                                String run = curatedSubmissionRun(scope, key);
                                 discovery.createIntent(
                                         scope,
                                         roundId,
@@ -658,7 +670,46 @@ public class Recommendations {
                         });
         // Commit admission and its recovery projection before rendering the HTTP response.
         // A slow response must not hold the global scheduling lock for other subjects.
-        return state(token, session, false);
+        return committedState(token, session, key);
+    }
+
+    private String committedState(String token, String session, String key) {
+        try {
+            return tx.write(
+                    () -> {
+                        var scope = owned(token, session);
+                        var dispatchedRun = queue.submittedRun(scope, scopeId("submit", key));
+                        String response = state(token, session, false);
+                        String displayedRun = json(response).path("run_id").asText();
+                        // Both callers verified the original SUBMIT receipt and its session.
+                        // Keep already stored curated IDs readable without creating new global IDs.
+                        boolean originalRun =
+                                dispatchedRun
+                                        .map(displayedRun::equals)
+                                        .orElseGet(
+                                                () ->
+                                                        displayedRun.equals(
+                                                                        curatedSubmissionRun(
+                                                                                scope, key))
+                                                                || displayedRun.equals(
+                                                                        scopeId("curated", key)));
+                        // Card slots represent the current session display, not historical rounds.
+                        // Never label a newer task's cards as the outcome of this original key.
+                        if (!originalRun) fail("RESOURCE_UNAVAILABLE");
+                        return response;
+                    });
+        } catch (RuntimeException failure) {
+            // Authorization/expiry failures keep their safe code and remain terminal.
+            String code =
+                    failure instanceof PersistenceRejected
+                            ? failure.getMessage()
+                            : "DEPENDENCY_UNAVAILABLE";
+            throw new CommittedSubmissionFailure(code, failure);
+        }
+    }
+
+    private String curatedSubmissionRun(Scope scope, String key) {
+        return scopeId("curated", scope.sessionId() + ":" + key);
     }
 
     public String state(String token, String session, boolean restored) {

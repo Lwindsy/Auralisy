@@ -15,7 +15,8 @@ docker build -f apps/runtime/web.Dockerfile -t "auralis-web:$release" .
 sql() { "${compose[@]}" exec -T database psql -X -At -v ON_ERROR_STOP=1 -U postgres -d auralis_core -c "$1"; }
 # Stop new work and let already accepted operations settle before snapshotting.
 "${compose[@]}" stop web
-sql 'UPDATE discovery.runtime_control SET maintenance=true,revision=revision+1 WHERE singleton;'
+# The two-int lifecycle key matches PostgresRuntimeBarrier, separate from the owner lease.
+sql 'BEGIN; SELECT pg_advisory_xact_lock(1096110668,1); UPDATE discovery.runtime_control SET maintenance=true,revision=revision+1 WHERE singleton; COMMIT;'
 for i in $(seq 1 210); do
     active=$(sql "SELECT (SELECT count(*) FROM discovery.execution_slot WHERE state<>'FREE')+(SELECT count(*) FROM discovery.discovery_intent WHERE status='WAITING');")
     [[ "$active" == 0 ]] && break

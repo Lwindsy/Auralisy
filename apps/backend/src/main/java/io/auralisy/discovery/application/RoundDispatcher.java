@@ -49,87 +49,107 @@ public final class RoundDispatcher {
                             throw new PythonClient.Unavailable();
                         queue.reconcile(boot, runtime);
                         for (var job : queue.active()) {
-                            if (!job.coordinatorBoot().equals(boot)) queue.stop(job, "INTERRUPTED");
-                            boolean stopping =
-                                    job.cancel()
-                                            || !job.coordinatorBoot().equals(boot)
-                                            || !job.deadline().isAfter(clock.instant());
-                            if (stopping && job.attempts() == 0) {
-                                queue.release(job, "INTERRUPTED");
-                                continue;
-                            }
-                            if (job.attempts() == 0) {
-                                send(job);
-                                continue;
-                            }
-                            JsonNode p = json(job.payload());
-                            var admission =
-                                    json(
-                                            python.admission(
-                                                    job.execution(),
-                                                    job.pythonBoot(),
-                                                    p.path("payload_digest").asText(),
-                                                    job.deadline().toString()));
-                            if (!job.execution().equals(admission.path("execution_id").asText())
-                                    || !job.pythonBoot().equals(admission.path("boot_id").asText())
-                                    || !p.path("payload_digest")
-                                            .equals(admission.path("payload_digest")))
-                                throw new PythonClient.Unavailable();
-                            switch (admission.path("status").asText()) {
-                                case "ACTIVE", "TERMINAL" -> {
-                                    if (admission.path("execution").isNull())
-                                        throw new PythonClient.Unavailable();
-                                    if (stopping
-                                            && !admission
-                                                    .path("execution")
-                                                    .path("slot_released")
-                                                    .asBoolean())
-                                        queue.observe(
-                                                job,
-                                                python.cancel(
+                            try {
+                                if (!job.coordinatorBoot().equals(boot))
+                                    queue.stop(boot, job, "INTERRUPTED");
+                                boolean stopping =
+                                        job.cancel()
+                                                || !job.coordinatorBoot().equals(boot)
+                                                || !job.deadline().isAfter(clock.instant());
+                                if (stopping && job.attempts() == 0) {
+                                    queue.release(boot, job, "INTERRUPTED");
+                                    continue;
+                                }
+                                if (job.attempts() == 0) {
+                                    send(job);
+                                    continue;
+                                }
+                                JsonNode p = json(job.payload());
+                                var admission =
+                                        json(
+                                                python.admission(
                                                         job.execution(),
-                                                        job.coordinatorBoot(),
                                                         job.pythonBoot(),
-                                                        "USER_CANCELLED"));
-                                    else queue.observe(job, admission.path("execution").toString());
+                                                        p.path("payload_digest").asText(),
+                                                        job.deadline().toString()));
+                                if (!job.execution().equals(admission.path("execution_id").asText())
+                                        || !job.pythonBoot()
+                                                .equals(admission.path("boot_id").asText())
+                                        || !p.path("payload_digest")
+                                                .equals(admission.path("payload_digest")))
+                                    throw new PythonClient.Unavailable();
+                                switch (admission.path("status").asText()) {
+                                    case "ACTIVE", "TERMINAL" -> {
+                                        if (admission.path("execution").isNull())
+                                            throw new PythonClient.Unavailable();
+                                        if (stopping
+                                                && !admission
+                                                        .path("execution")
+                                                        .path("slot_released")
+                                                        .asBoolean())
+                                            queue.observe(
+                                                    boot,
+                                                    job,
+                                                    python.cancel(
+                                                            job.execution(),
+                                                            job.coordinatorBoot(),
+                                                            job.pythonBoot(),
+                                                            "USER_CANCELLED"));
+                                        else
+                                            queue.observe(
+                                                    boot,
+                                                    job,
+                                                    admission.path("execution").toString());
+                                    }
+                                    case "NOT_ACCEPTED", "CLEARED" -> {
+                                        String until = admission.path("dedup_until").asText();
+                                        if (until.isEmpty()
+                                                || !Instant.parse(until).equals(job.deadline())
+                                                || !job.deadline().isAfter(clock.instant()))
+                                            throw new PythonClient.Unavailable();
+                                        if (stopping
+                                                || admission
+                                                        .path("status")
+                                                        .asText()
+                                                        .equals("CLEARED")
+                                                || job.attempts() >= 2)
+                                            queue.release(boot, job, "INTERRUPTED");
+                                        else send(job);
+                                    }
+                                    case "UNKNOWN" -> {
+                                        /* Keep the physical slot; absence is not retry permission. */
+                                        if (stopping)
+                                            queue.observe(
+                                                    boot,
+                                                    job,
+                                                    python.cancel(
+                                                            job.execution(),
+                                                            job.coordinatorBoot(),
+                                                            job.pythonBoot(),
+                                                            "USER_CANCELLED"));
+                                    }
+                                    default -> throw new PythonClient.Unavailable();
                                 }
-                                case "NOT_ACCEPTED", "CLEARED" -> {
-                                    String until = admission.path("dedup_until").asText();
-                                    if (until.isEmpty()
-                                            || !Instant.parse(until).equals(job.deadline())
-                                            || !job.deadline().isAfter(clock.instant()))
-                                        throw new PythonClient.Unavailable();
-                                    if (stopping
-                                            || admission.path("status").asText().equals("CLEARED")
-                                            || job.attempts() >= 2)
-                                        queue.release(job, "INTERRUPTED");
-                                    else send(job);
-                                }
-                                case "UNKNOWN" -> {
-                                    /* Keep the physical slot; absence is not retry permission. */
-                                    if (stopping)
-                                        queue.observe(
-                                                job,
-                                                python.cancel(
-                                                        job.execution(),
-                                                        job.coordinatorBoot(),
-                                                        job.pythonBoot(),
-                                                        "USER_CANCELLED"));
-                                }
-                                default -> throw new PythonClient.Unavailable();
+                            } catch (RuntimeException failure) {
+                                if (!ShortTransactions.isLockContention(failure)) throw failure;
                             }
                         }
-                        for (var command : queue.commands()) {
-                            var accepted =
-                                    json(
-                                            python.command(
-                                                    command.execution(),
-                                                    command.id(),
-                                                    command.payload()));
-                            if (!accepted.path("accepted").asBoolean())
-                                throw new PythonClient.Unavailable();
-                            queue.acknowledge(command);
-                        }
+                        if (queue.ready(boot))
+                            for (var command : queue.commands()) {
+                                try {
+                                    var accepted =
+                                            json(
+                                                    python.command(
+                                                            command.execution(),
+                                                            command.id(),
+                                                            command.payload()));
+                                    if (!accepted.path("accepted").asBoolean())
+                                        throw new PythonClient.Unavailable();
+                                    queue.acknowledge(boot, command);
+                                } catch (RuntimeException failure) {
+                                    if (!ShortTransactions.isLockContention(failure)) throw failure;
+                                }
+                            }
                         if (queue.ready(boot)) {
                             var next = queue.claim(boot, limits);
                             if (next != null) send(next);
@@ -138,7 +158,7 @@ public final class RoundDispatcher {
                         // PostgreSQL lock contention is local, not evidence of a lost Python
                         // runtime. The transaction rolled back; retain slots and retry observation
                         // on the next tick without disabling in-flight callbacks.
-                        if (lockBusy(failure)) return null;
+                        if (ShortTransactions.isLockContention(failure)) return null;
                         LOG.warn("AURALIS_DISPATCH_FAILED {}", failure.getClass().getSimpleName());
                         // A failed observation cannot authorize another execution or reset a paid
                         // attempt.
@@ -148,18 +168,10 @@ public final class RoundDispatcher {
                 });
     }
 
-    private static boolean lockBusy(Throwable failure) {
-        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
-            if (cause instanceof java.sql.SQLException sql && "55P03".equals(sql.getSQLState()))
-                return true;
-        }
-        return false;
-    }
-
     private void send(DispatchQueue.Job job) {
-        if (!queue.markSending(job)) return;
+        if (!queue.markSending(boot, job)) return;
         try {
-            queue.observe(job, python.start(job.execution(), job.payload()));
+            queue.observe(boot, job, python.start(job.execution(), job.payload()));
         } catch (PythonClient.Unavailable unavailable) {
             // The PUT may have committed. Check that exact admission before entering maintenance;
             // otherwise valid callbacks can be rejected during the next polling interval.
@@ -177,7 +189,7 @@ public final class RoundDispatcher {
                     || !java.util.Set.of("ACTIVE", "TERMINAL")
                             .contains(admission.path("status").asText())
                     || admission.path("execution").isNull()) throw unavailable;
-            queue.observe(job, admission.path("execution").toString());
+            queue.observe(boot, job, admission.path("execution").toString());
         }
     }
 }

@@ -12,6 +12,7 @@ public interface DiscoveryStore {
             Instant acceptedAt,
             Instant deadline) {}
 
+    /** Reentrant shared lifecycle barrier; ordinary subjects do not exclude each other. */
     void lockRuntime();
 
     void createRound(

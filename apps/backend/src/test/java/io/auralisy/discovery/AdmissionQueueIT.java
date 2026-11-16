@@ -111,7 +111,11 @@ class AdmissionQueueIT {
 
     @AfterEach
     void cleanup() {
-        for (var job : queue.active()) queue.release(job, "INTERRUPTED");
+        String actingBoot =
+                jdbc.queryForObject(
+                        "SELECT coordinator_boot FROM discovery.runtime_control WHERE singleton",
+                        String.class);
+        for (var job : queue.active()) queue.release(actingBoot, job, "INTERRUPTED");
         for (var input : inputs) {
             jdbc.update(
                     "UPDATE discovery.discovery_intent SET status='CANCELLED',revision=revision+1 WHERE session_id=? AND status IN ('WAITING','DISPATCHING','RUNNING')",
@@ -335,6 +339,238 @@ class AdmissionQueueIT {
     }
 
     @Test
+    void differentOwnersCanWriteWhileAnotherOwnersTransactionIsOpen() throws Exception {
+        var first = input();
+        var second = input();
+        var entered = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        try (var worker = Executors.newSingleThreadExecutor()) {
+            var held =
+                    worker.submit(
+                            () ->
+                                    tx.write(
+                                            () -> {
+                                                discovery.lockRuntime();
+                                                sessions.lockActive(first.scope());
+                                                entered.countDown();
+                                                try {
+                                                    assertTrue(release.await(4, TimeUnit.SECONDS));
+                                                } catch (InterruptedException failure) {
+                                                    throw new AssertionError(failure);
+                                                }
+                                                return null;
+                                            }));
+            try {
+                assertTrue(entered.await(2, TimeUnit.SECONDS));
+                assertEquals("WAITING", queue.accept(second, LIMITS).status());
+                assertFalse(held.isDone());
+            } finally {
+                release.countDown();
+            }
+            held.get(2, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
+    void lifecycleWriterRunsBeforeLaterReadersAndNestedUpgradeIsRejected() throws Exception {
+        var entered = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        var pid = new java.util.concurrent.atomic.AtomicInteger();
+        var order = Collections.synchronizedList(new ArrayList<String>());
+        try (var workers = Executors.newFixedThreadPool(4)) {
+            var first =
+                    workers.submit(
+                            () ->
+                                    tx.write(
+                                            () -> {
+                                                pid.set(
+                                                        jdbc.queryForObject(
+                                                                "SELECT pg_backend_pid()",
+                                                                Integer.class));
+                                                entered.countDown();
+                                                try {
+                                                    assertTrue(release.await(4, TimeUnit.SECONDS));
+                                                } catch (InterruptedException failure) {
+                                                    throw new AssertionError(failure);
+                                                }
+                                                return null;
+                                            }));
+            try {
+                assertTrue(entered.await(2, TimeUnit.SECONDS));
+                var exclusive =
+                        workers.submit(
+                                () ->
+                                        tx.writeExclusive(
+                                                () -> {
+                                                    order.add("exclusive");
+                                                    return null;
+                                                }));
+                await(
+                        () ->
+                                jdbc.queryForObject(
+                                                "SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND ?=ANY(pg_blocking_pids(pid))",
+                                                Integer.class,
+                                                pid.get())
+                                        > 0);
+                var later = new ArrayList<Future<?>>();
+                for (int n = 0; n < 2; n++)
+                    later.add(
+                            workers.submit(
+                                    () ->
+                                            tx.write(
+                                                    () -> {
+                                                        order.add("reader");
+                                                        return null;
+                                                    })));
+                release.countDown();
+                exclusive.get(2, TimeUnit.SECONDS);
+                for (var reader : later) reader.get(2, TimeUnit.SECONDS);
+                assertEquals("exclusive", order.getFirst());
+            } finally {
+                release.countDown();
+            }
+            first.get(2, TimeUnit.SECONDS);
+        }
+        tx.write(
+                () -> {
+                    assertThrows(PersistenceRejected.class, () -> tx.writeExclusive(() -> null));
+                    return null;
+                });
+        assertEquals(1, tx.read(() -> jdbc.queryForObject("SELECT 1", Integer.class)));
+        assertEquals(
+                "1s", jdbc.queryForObject("SELECT current_setting('lock_timeout')", String.class));
+    }
+
+    @Test
+    void physicalCleanupRechecksTheCanonicalOwner() throws Exception {
+        queue.accept(input(), LIMITS);
+        dispatcher.tick();
+        var job = queue.active().getFirst();
+        var other = input();
+        var scope =
+                new SessionStore.Scope(
+                        other.scope().subjectId(),
+                        job.scope().sessionId(),
+                        job.scope().subjectEpoch(),
+                        job.scope().sessionEpoch(),
+                        job.scope().revision());
+        var wrongOwner =
+                new DispatchQueue.Job(
+                        job.execution(),
+                        job.round(),
+                        job.run(),
+                        scope,
+                        job.coordinatorBoot(),
+                        job.pythonBoot(),
+                        job.payload(),
+                        job.attempts(),
+                        job.cancel(),
+                        job.deadline());
+        queue.release("java-1", wrongOwner, "INTERRUPTED");
+        assertEquals(
+                List.of(job.execution()),
+                queue.active().stream().map(DispatchQueue.Job::execution).toList());
+    }
+
+    @Test
+    void staleCoordinatorCannotWriteAndSuccessorCanCleanOldExecutions() throws Exception {
+        queue.accept(input(), LIMITS);
+        dispatcher.tick();
+        var job = queue.active().getFirst();
+        queue.beginRecovery("java-successor");
+        assertThrows(PersistenceRejected.class, () -> queue.reconcile("java-1", peer.runtime()));
+        assertThrows(PersistenceRejected.class, () -> queue.markSending("java-1", job));
+        assertThrows(PersistenceRejected.class, () -> queue.stop("java-1", job, "INTERRUPTED"));
+        assertThrows(PersistenceRejected.class, () -> queue.release("java-1", job, "INTERRUPTED"));
+        assertThrows(
+                PersistenceRejected.class,
+                () -> queue.observe("java-1", job, peer.views.get(job.execution()).toString()));
+        assertEquals(
+                "java-successor",
+                jdbc.queryForObject(
+                        "SELECT coordinator_boot FROM discovery.runtime_control WHERE singleton",
+                        String.class));
+        var successor =
+                new RoundDispatcher(queue, peer, LIMITS, "java-successor", Clock.systemUTC());
+        successor.tick();
+        successor.tick();
+        assertTrue(queue.active().isEmpty());
+        assertTrue(queue.ready("java-successor"));
+    }
+
+    @Test
+    void busyOwnerDoesNotBlockOtherExecutionCleanup() throws Exception {
+        queue.accept(input(), LIMITS);
+        dispatcher.tick();
+        queue.accept(input(), LIMITS);
+        dispatcher.tick();
+        var jobs = queue.active();
+        var busy = jobs.getFirst();
+        var finished = jobs.getLast();
+        peer.complete(finished.execution());
+        try (var blocker = blockSubject(busy.scope().subjectId())) {
+            assertDoesNotThrow(dispatcher::tick);
+            assertEquals(
+                    List.of(busy.execution()),
+                    queue.active().stream().map(DispatchQueue.Job::execution).toList());
+            assertTrue(queue.ready("java-1"));
+            blocker.rollback();
+        }
+        peer.complete(busy.execution());
+        dispatcher.tick();
+        assertTrue(queue.active().isEmpty());
+    }
+
+    @Test
+    void busyFifoHeadIsNotSkippedAndExpiredOtherOwnersAreNotMutatedByAdmission() throws Exception {
+        var first = input();
+        var second = input();
+        var head = queue.accept(first, LIMITS);
+        var next = queue.accept(second, LIMITS);
+        try (var blocker = blockSubject(first.scope().subjectId())) {
+            assertThrows(
+                    org.springframework.dao.DataAccessException.class,
+                    () -> queue.claim("java-1", LIMITS));
+            assertTrue(queue.active().isEmpty());
+            blocker.rollback();
+        }
+        assertEquals(head.run(), queue.claim("java-1", LIMITS).run());
+        assertEquals(next.run(), queue.claim("java-1", LIMITS).run());
+
+        var expired = input();
+        var old = queue.accept(expired, new DispatchQueue.Limits(5, 1, 120));
+        Thread.sleep(1100);
+        try (var blocker = blockSubject(expired.scope().subjectId())) {
+            assertEquals("WAITING", queue.accept(input(), LIMITS).status());
+            assertEquals(
+                    "WAITING",
+                    jdbc.queryForObject(
+                            "SELECT status FROM discovery.discovery_intent WHERE id=?",
+                            String.class,
+                            old.run()));
+            blocker.rollback();
+        }
+        assertEquals("EXPIRED", queue.status(expired.scope(), old.run()).status());
+    }
+
+    private java.sql.Connection blockSubject(String subject) throws Exception {
+        var connection = app.getBean(javax.sql.DataSource.class).getConnection();
+        try {
+            connection.setAutoCommit(false);
+            try (var statement =
+                    connection.prepareStatement(
+                            "SELECT id FROM discovery.subject WHERE id=? FOR UPDATE")) {
+                statement.setString(1, subject);
+                statement.executeQuery().close();
+            }
+            return connection;
+        } catch (Exception failure) {
+            connection.close();
+            throw failure;
+        }
+    }
+
+    @Test
     void busyRuntimeDefersWithoutMaintenanceOrResend() throws Exception {
         queue.accept(input(), LIMITS);
         dispatcher.tick();
@@ -342,10 +578,7 @@ class AdmissionQueueIT {
         try (var connection = app.getBean(javax.sql.DataSource.class).getConnection()) {
             connection.setAutoCommit(false);
             try (var statement = connection.createStatement()) {
-                statement
-                        .executeQuery(
-                                "SELECT singleton FROM discovery.runtime_control WHERE singleton FOR UPDATE")
-                        .close();
+                statement.executeQuery("SELECT pg_advisory_xact_lock(1096110668,1)").close();
             }
             assertDoesNotThrow(dispatcher::tick);
             assertTrue(queue.ready("java-1"));
@@ -842,7 +1075,14 @@ class AdmissionQueueIT {
                     assertTrue(ids.add(j.execution()));
                 }
             }
-            assertEquals(3, count);
+            // A concurrent claimant whose observed head changed retries in a new transaction.
+            while (count < 3) {
+                var job = queue.claim("java-1", LIMITS);
+                assertNotNull(job);
+                assertTrue(ids.add(job.execution()));
+                count++;
+            }
+            assertNull(queue.claim("java-1", LIMITS));
             assertEquals(3, queue.active().size());
         }
     }

@@ -29,6 +29,15 @@ public interface SubjectSession {
     /** Authorized, revision-checked snapshot for a caller that rebuilds all live status fields. */
     Restoration restoreForRender(String credential, String sessionId);
 
+    /** Look up an accepted submission by its original input before resolving catalog data again. */
+    Optional<Replacement> replaySubmission(
+            String credential,
+            String csrf,
+            String commandId,
+            String expectedSession,
+            long expectedRevision,
+            String input);
+
     Replacement replace(
             String credential,
             String csrf,

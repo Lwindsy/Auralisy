@@ -30,6 +30,11 @@ public interface SessionStore {
 
     View lockActive(Scope scope);
 
+    /**
+     * Lock ownership even after replacement/revocation, for physical cleanup and late accounting.
+     */
+    boolean lockOwner(String subjectId);
+
     Scope lockRefreshed(Scope original);
 
     Scope advanceRevision(Scope scope);

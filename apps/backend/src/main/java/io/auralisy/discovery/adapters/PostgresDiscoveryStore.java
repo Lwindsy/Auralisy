@@ -3,6 +3,7 @@ package io.auralisy.discovery.adapters;
 import io.auralisy.discovery.api.DiscoveryStore;
 import io.auralisy.persistence.LockOrder;
 import io.auralisy.persistence.PersistenceRejected;
+import io.auralisy.persistence.RuntimeBarrier;
 import io.auralisy.session.api.SessionStore;
 import io.auralisy.session.api.SessionStore.Scope;
 import java.sql.Timestamp;
@@ -15,18 +16,18 @@ import org.springframework.stereotype.Repository;
 public class PostgresDiscoveryStore implements DiscoveryStore {
     private final JdbcTemplate jdbc;
     private final SessionStore sessions;
+    private final RuntimeBarrier runtime;
 
-    public PostgresDiscoveryStore(JdbcTemplate jdbc, SessionStore sessions) {
+    public PostgresDiscoveryStore(
+            JdbcTemplate jdbc, SessionStore sessions, RuntimeBarrier runtime) {
         this.jdbc = jdbc;
         this.sessions = sessions;
+        this.runtime = runtime;
     }
 
     @Override
     public void lockRuntime() {
-        LockOrder.before(LockOrder.Level.RUNTIME, "singleton");
-        jdbc.queryForObject(
-                "SELECT singleton FROM discovery.runtime_control WHERE singleton=true FOR UPDATE",
-                Boolean.class);
+        runtime.shared();
     }
 
     private void round(Scope scope, String round) {
@@ -105,6 +106,12 @@ public class PostgresDiscoveryStore implements DiscoveryStore {
             String python) {
         lockRuntime();
         round(scope, round);
+        LockOrder.beforePhysicalSlot();
+        if (jdbc.queryForList(
+                        "SELECT slot_no FROM discovery.execution_slot WHERE slot_no=? AND state='FREE' FOR UPDATE",
+                        Integer.class,
+                        slot)
+                .isEmpty()) throw new PersistenceRejected("SLOT_UNAVAILABLE");
         LockOrder.before(LockOrder.Level.EXECUTION, execution);
         jdbc.update(
                 "INSERT INTO discovery.execution(id,session_id,round_id,run_id,coordinator_boot,python_boot,slot_no,state) VALUES (?,?,?,?,?,?,?,'RESERVED')",
@@ -143,15 +150,18 @@ public class PostgresDiscoveryStore implements DiscoveryStore {
             Scope scope, String execution, String coordinator, String python, Instant at) {
         lockRuntime();
         // Cleanup is permitted after a subject/session barrier; it never writes content.
+        if (!sessions.lockOwner(scope.subjectId())) return false;
         LockOrder.before(LockOrder.Level.EXECUTION, execution);
         var rows =
                 jdbc.queryForList(
-                        "SELECT slot_no FROM discovery.execution WHERE id=? AND session_id=? AND coordinator_boot=? AND python_boot=? AND physical_released_at IS NULL FOR UPDATE",
+                        "SELECT e.slot_no FROM discovery.execution e JOIN discovery.discovery_intent i ON i.id=e.run_id WHERE e.id=? AND e.session_id=? AND e.coordinator_boot=? AND e.python_boot=? AND e.physical_released_at IS NULL AND i.subject_id=? FOR UPDATE OF e",
                         execution,
                         scope.sessionId(),
                         coordinator,
-                        python);
+                        python,
+                        scope.subjectId());
         if (rows.isEmpty()) return false;
+        LockOrder.beforePhysicalSlot();
         jdbc.update(
                 "UPDATE discovery.execution SET state='CLOSED',physical_released_at=?,revision=revision+1 WHERE id=?",
                 Timestamp.from(at),

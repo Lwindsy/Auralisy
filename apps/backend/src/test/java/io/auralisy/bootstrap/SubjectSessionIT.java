@@ -30,6 +30,199 @@ import org.springframework.web.bind.annotation.*;
 @EnabledIfEnvironmentVariable(named = "AURALIS_TEST_POSTGRES_URL", matches = ".+")
 class SubjectSessionIT {
     @Test
+    void busyCleanupOwnerDoesNotBlockAnotherOwnerOrLoseItsOriginalDueTime() throws Exception {
+        service.cleanup(100);
+        try (var busy = new Browser();
+                var ready = new Browser();
+                var owner = admin()) {
+            busy.bootstrap();
+            ready.bootstrap();
+            var a = submit(busy, null, 0, "busy-cleanup", "busy owner").scope();
+            var b = submit(ready, null, 0, "ready-cleanup", "ready owner").scope();
+            service.erase(busy.token(), busy.csrf);
+            service.erase(ready.token(), ready.csrf);
+            var originalDue = java.sql.Timestamp.from(Instant.EPOCH);
+            jdbc.update(
+                    "UPDATE discovery.deletion_job SET next_attempt_at=? WHERE subject_id=?",
+                    originalDue,
+                    a.subjectId());
+            jdbc.update(
+                    "UPDATE discovery.deletion_job SET next_attempt_at=? WHERE subject_id=?",
+                    java.sql.Timestamp.from(Instant.EPOCH.plusSeconds(1)),
+                    b.subjectId());
+            owner.setAutoCommit(false);
+            try (var statement =
+                    owner.prepareStatement(
+                            "SELECT id FROM discovery.subject WHERE id=? FOR UPDATE")) {
+                statement.setString(1, a.subjectId());
+                try (var row = statement.executeQuery()) {
+                    assertTrue(row.next());
+                }
+            }
+            try {
+                service.cleanup(4);
+                assertEquals(
+                        0,
+                        jdbc.queryForObject(
+                                "SELECT count(*) FROM discovery.subject WHERE id=?",
+                                Integer.class,
+                                b.subjectId()));
+                assertEquals(
+                        1,
+                        jdbc.queryForObject(
+                                "SELECT count(*) FROM discovery.session WHERE id=?",
+                                Integer.class,
+                                a.sessionId()));
+                assertEquals(
+                        originalDue,
+                        jdbc.queryForObject(
+                                "SELECT next_attempt_at FROM discovery.deletion_job WHERE subject_id=?",
+                                java.sql.Timestamp.class,
+                                a.subjectId()));
+            } finally {
+                owner.rollback();
+            }
+            service.cleanup(100);
+            assertEquals(
+                    0,
+                    jdbc.queryForObject(
+                            "SELECT count(*) FROM discovery.subject WHERE id=?",
+                            Integer.class,
+                            a.subjectId()));
+        }
+    }
+
+    @Test
+    void cleanupLocksOwnerBeforeJobAndRechecksADeferral() throws Exception {
+        service.cleanup(100);
+        try (var browser = new Browser();
+                var worker = Executors.newSingleThreadExecutor();
+                var owner = admin()) {
+            browser.bootstrap();
+            var created = submit(browser, null, 0, "cleanup-locks", "cleanup ordering");
+            String subject = created.scope().subjectId();
+            service.erase(browser.token(), browser.csrf);
+            jdbc.update(
+                    "UPDATE discovery.deletion_job SET next_attempt_at='1970-01-01T00:00:00Z' WHERE subject_id=?",
+                    subject);
+            owner.setAutoCommit(false);
+            int ownerPid;
+            try (var statement =
+                    owner.prepareStatement(
+                            "SELECT pg_backend_pid() FROM discovery.subject WHERE id=? FOR UPDATE")) {
+                statement.setString(1, subject);
+                try (var row = statement.executeQuery()) {
+                    assertTrue(row.next());
+                    ownerPid = row.getInt(1);
+                }
+            }
+            var cleanup = worker.submit(() -> service.cleanup(1));
+            try {
+                long until = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(800);
+                boolean blocked;
+                do {
+                    blocked =
+                            jdbc.queryForObject(
+                                            "SELECT count(*) FROM pg_stat_activity WHERE ?=ANY(pg_blocking_pids(pid))",
+                                            Long.class,
+                                            ownerPid)
+                                    > 0;
+                    if (!blocked) Thread.sleep(10);
+                } while (!blocked && System.nanoTime() < until);
+                assertTrue(blocked, "Cleanup must be waiting for the subject owner");
+                // An owner-side change must not wait for a job held by that same cleanup.
+                try (var statement =
+                        owner.prepareStatement(
+                                "UPDATE discovery.deletion_job SET next_attempt_at=? WHERE subject_id=?")) {
+                    statement.setQueryTimeout(1);
+                    statement.setTimestamp(1, java.sql.Timestamp.from(CLOCK.now.plusSeconds(3600)));
+                    statement.setString(2, subject);
+                    assertEquals(1, statement.executeUpdate());
+                }
+                owner.commit();
+                assertEquals(0, cleanup.get(3, TimeUnit.SECONDS));
+                assertEquals(
+                        1,
+                        jdbc.queryForObject(
+                                "SELECT count(*) FROM discovery.subject WHERE id=?",
+                                Integer.class,
+                                subject));
+                assertEquals(
+                        1,
+                        jdbc.queryForObject(
+                                "SELECT count(*) FROM discovery.deletion_job WHERE subject_id=? AND next_attempt_at>?",
+                                Integer.class,
+                                subject,
+                                java.sql.Timestamp.from(CLOCK.now)));
+            } finally {
+                owner.rollback();
+            }
+            jdbc.update(
+                    "UPDATE discovery.deletion_job SET next_attempt_at=? WHERE subject_id=?",
+                    java.sql.Timestamp.from(CLOCK.now),
+                    subject);
+            service.cleanup(100);
+        }
+    }
+
+    @Test
+    void submissionReceiptLookupKeepsOriginalDigestOwnershipAndExpiry() throws Exception {
+        try (var a = new Browser();
+                var b = new Browser()) {
+            a.bootstrap();
+            b.bootstrap();
+            String original = input("original request").toString();
+            assertTrue(
+                    service.replaySubmission(a.token(), a.csrf, "recover", null, 0, original)
+                            .isEmpty());
+            var created = submit(a, null, 0, "recover", "original request");
+            var expiry = service.authenticate(a.token()).orElseThrow().expiresAt();
+            CLOCK.now = CLOCK.now.plus(Duration.ofDays(1));
+            var replay =
+                    service.replaySubmission(a.token(), a.csrf, "recover", null, 0, original)
+                            .orElseThrow();
+            assertTrue(replay.replayed());
+            assertEquals(created.scope(), replay.scope());
+            assertEquals(expiry, service.authenticate(a.token()).orElseThrow().expiresAt());
+            assertTrue(
+                    service.replaySubmission(b.token(), b.csrf, "recover", null, 0, original)
+                            .isEmpty());
+            assertEquals(
+                    "IDEMPOTENCY_CONFLICT",
+                    assertThrows(
+                                    PersistenceRejected.class,
+                                    () ->
+                                            service.replaySubmission(
+                                                    a.token(),
+                                                    a.csrf,
+                                                    "recover",
+                                                    null,
+                                                    0,
+                                                    input("changed").toString()))
+                            .getMessage());
+            assertEquals(
+                    "FORBIDDEN",
+                    assertThrows(
+                                    PersistenceRejected.class,
+                                    () ->
+                                            service.replaySubmission(
+                                                    a.token(), b.csrf, "recover", null, 0,
+                                                    original))
+                            .getMessage());
+            service.erase(a.token(), a.csrf);
+            assertEquals(
+                    "UNAUTHENTICATED",
+                    assertThrows(
+                                    PersistenceRejected.class,
+                                    () ->
+                                            service.replaySubmission(
+                                                    a.token(), a.csrf, "recover", null, 0,
+                                                    original))
+                            .getMessage());
+        }
+    }
+
+    @Test
     void subjectCleanupAdvancesInBoundedSessionBatches() throws Exception {
         service.cleanup(100);
         try (var browser = new Browser()) {

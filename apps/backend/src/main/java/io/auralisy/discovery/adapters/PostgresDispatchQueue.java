@@ -114,7 +114,7 @@ public class PostgresDispatchQueue implements DispatchQueue {
                             jdbc.queryForObject(
                                     "SELECT maintenance FROM discovery.runtime_control WHERE singleton",
                                     Boolean.class))) fail("MAINTENANCE");
-                    expire();
+                    expire(r.scope().subjectId());
                     var existing =
                             jdbc.queryForList(
                                     "SELECT id,status,session_id,round_id,operation FROM discovery.discovery_intent WHERE subject_id=? AND status IN ('WAITING','DISPATCHING','RUNNING') ORDER BY accepted_at,id",
@@ -142,6 +142,7 @@ public class PostgresDispatchQueue implements DispatchQueue {
                                 JSON.valueToTree(demands).toString(),
                                 run);
                     } else {
+                        lockAdmission();
                         if (!hasAdmissionRoom(limits)) fail("QUEUE_FULL");
                         run = UUID.randomUUID().toString();
                         Instant now =
@@ -203,11 +204,27 @@ public class PostgresDispatchQueue implements DispatchQueue {
                 run);
     }
 
-    private void expire() {
+    private void expire(String subject) {
         jdbc.update(
-                "UPDATE discovery.discovery_intent SET status='EXPIRED',error_code='QUEUE_TIMEOUT',revision=revision+1 WHERE status='WAITING' AND dispatch_plan IS NOT NULL AND (queue_deadline<=? OR technical_deadline<=?)",
+                "UPDATE discovery.discovery_intent SET status='EXPIRED',error_code='QUEUE_TIMEOUT',revision=revision+1 WHERE subject_id=? AND status='WAITING' AND dispatch_plan IS NOT NULL AND (queue_deadline<=? OR technical_deadline<=?)",
+                subject,
                 Timestamp.from(clock.instant()),
                 Timestamp.from(clock.instant()));
+    }
+
+    private void lockAdmission() {
+        if (LockOrder.beforeAdmission())
+            jdbc.queryForObject(
+                    "SELECT singleton FROM discovery.admission_guard WHERE singleton FOR UPDATE",
+                    Boolean.class);
+    }
+
+    private void requireCoordinator(String boot) {
+        if (!Boolean.TRUE.equals(
+                jdbc.queryForObject(
+                        "SELECT coordinator_boot=? FROM discovery.runtime_control WHERE singleton",
+                        Boolean.class,
+                        boot))) fail("STALE_COORDINATOR");
     }
 
     @Override
@@ -215,6 +232,7 @@ public class PostgresDispatchQueue implements DispatchQueue {
         return tx.write(
                 () -> {
                     sessions.lockActive(scope);
+                    expire(scope.subjectId());
                     if (jdbc.queryForObject(
                                     "SELECT count(*) FROM discovery.discovery_intent WHERE id=? AND session_id=?",
                                     Long.class,
@@ -222,6 +240,23 @@ public class PostgresDispatchQueue implements DispatchQueue {
                                     scope.sessionId())
                             != 1) fail("EXECUTION_GONE");
                     return accepted(run);
+                });
+    }
+
+    @Override
+    public Optional<String> submittedRun(SessionStore.Scope scope, String command) {
+        return tx.write(
+                () -> {
+                    sessions.lockActive(scope);
+                    return jdbc
+                            .queryForList(
+                                    "SELECT run_id FROM discovery.dispatch_command WHERE subject_id=? AND session_id=? AND operation='INITIAL' AND command_id=?",
+                                    String.class,
+                                    scope.subjectId(),
+                                    scope.sessionId(),
+                                    command)
+                            .stream()
+                            .findFirst();
                 });
     }
 
@@ -238,63 +273,120 @@ public class PostgresDispatchQueue implements DispatchQueue {
                                     || !remote.add(n.path("execution_id").asText()))
                                 fail("BINDING_MISMATCH");
                         });
-        tx.write(
+        var jobs =
+                tx.read(
+                        () -> {
+                            requireCoordinator(javaBoot);
+                            return active();
+                        });
+        var known = new HashSet<String>();
+        jobs.forEach(job -> known.add(job.execution()));
+        boolean recovering =
+                legacyExecutions()
+                        || jobs.stream()
+                                .anyMatch(
+                                        job ->
+                                                !job.coordinatorBoot().equals(javaBoot)
+                                                        || !job.pythonBoot().equals(python))
+                        || !known.containsAll(remote)
+                        || !runtime.path("status").asText().equals("READY");
+        updateRuntime(javaBoot, python, recovering);
+        for (var job : jobs) {
+            try {
+                if (!job.coordinatorBoot().equals(javaBoot)) stop(javaBoot, job, "INTERRUPTED");
+                if (!job.pythonBoot().equals(python)) {
+                    release(javaBoot, job, "INTERRUPTED");
+                } else if (!job.deadline().isAfter(clock.instant())) {
+                    if (remote.contains(job.execution())) stop(javaBoot, job, "EXPIRED");
+                    else release(javaBoot, job, "INTERRUPTED");
+                }
+            } catch (RuntimeException failure) {
+                if (!ShortTransactions.isLockContention(failure)) throw failure;
+                // One busy subject must not postpone every other subject's cleanup.
+            }
+        }
+        expirePending(javaBoot);
+        var remaining =
+                tx.read(
+                        () -> {
+                            requireCoordinator(javaBoot);
+                            return active();
+                        });
+        known.clear();
+        remaining.forEach(job -> known.add(job.execution()));
+        updateRuntime(
+                javaBoot,
+                python,
+                legacyExecutions()
+                        || remaining.stream()
+                                .anyMatch(
+                                        job ->
+                                                !job.coordinatorBoot().equals(javaBoot)
+                                                        || !job.pythonBoot().equals(python))
+                        || !known.containsAll(remote)
+                        || !runtime.path("status").asText().equals("READY"));
+    }
+
+    private boolean legacyExecutions() {
+        return jdbc.queryForObject(
+                        "SELECT count(*) FROM discovery.execution WHERE physical_released_at IS NULL AND start_payload IS NULL",
+                        Long.class)
+                > 0;
+    }
+
+    private void updateRuntime(String javaBoot, String python, boolean maintenance) {
+        var current =
+                jdbc.queryForMap(
+                        "SELECT coordinator_boot,python_boot,maintenance FROM discovery.runtime_control WHERE singleton");
+        if (!Objects.equals(current.get("coordinator_boot"), javaBoot)) fail("STALE_COORDINATOR");
+        if (Objects.equals(current.get("python_boot"), python)
+                && Objects.equals(current.get("maintenance"), maintenance)) return;
+        tx.writeExclusive(
                 () -> {
-                    discovery.lockRuntime();
-                    expire();
-                    boolean legacy =
-                            jdbc.queryForObject(
-                                            "SELECT count(*) FROM discovery.execution WHERE physical_released_at IS NULL AND start_payload IS NULL",
-                                            Long.class)
-                                    > 0;
-                    boolean recovering = legacy;
-                    for (var job : active()) {
-                        if (!job.coordinatorBoot().equals(javaBoot)) {
-                            stopLocked(job, "INTERRUPTED");
-                            recovering = true;
-                        }
-                        if (!job.pythonBoot().equals(python)) {
-                            releaseLocked(job, "INTERRUPTED");
-                            continue;
-                        }
-                        if (!job.deadline().isAfter(clock.instant())
-                                && !remote.contains(job.execution())) {
-                            releaseLocked(job, "INTERRUPTED");
-                            continue;
-                        }
-                        if (!job.deadline().isAfter(clock.instant())) stopLocked(job, "EXPIRED");
-                    }
-                    var local = new HashSet<String>();
-                    for (var job : active()) local.add(job.execution());
-                    if (!local.containsAll(remote)) recovering = true;
-                    // A restart cannot enable new grants while any old coordinator still owns a
-                    // slot.
-                    recovering =
-                            legacy
-                                    || (recovering
-                                            && (active().stream()
-                                                            .anyMatch(
-                                                                    j ->
-                                                                            !j.coordinatorBoot()
-                                                                                    .equals(
-                                                                                            javaBoot))
-                                                    || !local.containsAll(remote)));
+                    requireCoordinator(javaBoot);
                     jdbc.update(
-                            "UPDATE discovery.runtime_control SET coordinator_boot=?,python_boot=?,maintenance=?,revision=revision+1 WHERE singleton",
+                            "UPDATE discovery.runtime_control SET python_boot=?,maintenance=?,revision=revision+1 WHERE singleton AND coordinator_boot=? AND (python_boot IS DISTINCT FROM ? OR maintenance<>?)",
+                            python,
+                            maintenance,
                             javaBoot,
                             python,
-                            recovering || !runtime.path("status").asText().equals("READY"));
+                            maintenance);
                     return null;
                 });
     }
 
+    private void expirePending(String javaBoot) {
+        var subjects =
+                jdbc.queryForList(
+                        "SELECT DISTINCT subject_id FROM discovery.discovery_intent WHERE status='WAITING' AND dispatch_plan IS NOT NULL AND (queue_deadline<=? OR technical_deadline<=?) ORDER BY subject_id LIMIT 32",
+                        String.class,
+                        Timestamp.from(clock.instant()),
+                        Timestamp.from(clock.instant()));
+        for (String subject : subjects) {
+            try {
+                tx.write(
+                        () -> {
+                            requireCoordinator(javaBoot);
+                            if (sessions.lockOwner(subject)) expire(subject);
+                            return null;
+                        });
+            } catch (RuntimeException failure) {
+                if (!ShortTransactions.isLockContention(failure)) throw failure;
+            }
+        }
+    }
+
     @Override
     public void unavailable(String javaBoot) {
-        tx.write(
+        if (!Boolean.TRUE.equals(
+                jdbc.queryForObject(
+                        "SELECT coordinator_boot=? AND NOT maintenance FROM discovery.runtime_control WHERE singleton",
+                        Boolean.class,
+                        javaBoot))) return;
+        tx.writeExclusive(
                 () -> {
-                    discovery.lockRuntime();
                     jdbc.update(
-                            "UPDATE discovery.runtime_control SET maintenance=true,revision=revision+1 WHERE singleton AND coordinator_boot=?",
+                            "UPDATE discovery.runtime_control SET maintenance=true,revision=revision+1 WHERE singleton AND coordinator_boot=? AND NOT maintenance",
                             javaBoot);
                     return null;
                 });
@@ -302,9 +394,8 @@ public class PostgresDispatchQueue implements DispatchQueue {
 
     @Override
     public void beginRecovery(String javaBoot) {
-        tx.write(
+        tx.writeExclusive(
                 () -> {
-                    discovery.lockRuntime();
                     jdbc.update(
                             "UPDATE discovery.discovery_intent SET status='INTERRUPTED',error_code='INVALID_DISPATCH_PLAN',revision=revision+1 WHERE status='WAITING' AND dispatch_plan IS NULL");
                     jdbc.update(
@@ -348,31 +439,46 @@ public class PostgresDispatchQueue implements DispatchQueue {
                 .toList();
     }
 
+    private record Selection(String run, String subject, long revision) {}
+
+    private List<Map<String, Object>> waitingHead() {
+        return jdbc.queryForList(
+                "SELECT id,subject_id FROM discovery.discovery_intent WHERE status='WAITING' AND dispatch_plan IS NOT NULL AND queue_deadline>? AND technical_deadline>? ORDER BY accepted_at,id LIMIT 1",
+                Timestamp.from(clock.instant()),
+                Timestamp.from(clock.instant()));
+    }
+
     @Override
     public Job claim(String javaBoot, Limits limits) {
-        var selected = new java.util.concurrent.atomic.AtomicReference<String>();
+        var candidates = waitingHead();
+        if (candidates.isEmpty()) return null;
+        String candidate = (String) candidates.getFirst().get("id");
+        String subject = (String) candidates.getFirst().get("subject_id");
+        var selected = new java.util.concurrent.atomic.AtomicReference<Selection>();
         try {
             return tx.write(
                     () -> {
-                        discovery.lockRuntime();
-                        expire();
-                        if (!ready(javaBoot)) return null;
-                        Integer slot =
-                                jdbc.queryForObject(
-                                        "SELECT min(slot_no) FROM discovery.execution_slot WHERE state='FREE' AND slot_no<=?",
-                                        Integer.class,
-                                        limits.executions());
-                        if (slot == null) return null;
+                        requireCoordinator(javaBoot);
+                        if (!ready(javaBoot) || !sessions.lockOwner(subject)) return null;
+                        expire(subject);
+                        var head = waitingHead();
+                        // Never lock a different owner while retaining the first owner's lock.
+                        if (head.isEmpty() || !candidate.equals(head.getFirst().get("id")))
+                            return null;
                         var rows =
                                 jdbc.queryForList(
-                                        "SELECT *,dispatch_plan::text AS plan,scope_snapshot::text AS scope FROM discovery.discovery_intent WHERE status='WAITING' AND dispatch_plan IS NOT NULL ORDER BY accepted_at,id LIMIT 1");
+                                        "SELECT *,dispatch_plan::text AS plan,scope_snapshot::text AS scope FROM discovery.discovery_intent WHERE id=? AND subject_id=? AND status='WAITING'",
+                                        candidate,
+                                        subject);
                         if (rows.isEmpty()) return null;
                         var row = rows.getFirst();
                         String run = (String) row.get("id");
-                        selected.set(run);
+                        long revision = ((Number) row.get("revision")).longValue();
+                        selected.set(new Selection(run, subject, revision));
                         var scope =
                                 convert(json((String) row.get("scope")), SessionStore.Scope.class);
-                        var current = sessions.current(scope.subjectId());
+                        if (!scope.subjectId().equals(subject)) fail("BINDING_MISMATCH");
+                        var current = sessions.current(subject);
                         if (current.isEmpty()
                                 || !current.get().scope().sessionId().equals(scope.sessionId())
                                 || current.get().scope().subjectEpoch() != scope.subjectEpoch()
@@ -383,10 +489,6 @@ public class PostgresDispatchQueue implements DispatchQueue {
                             return null;
                         }
                         scope = current.get().scope();
-                        jdbc.update(
-                                "UPDATE discovery.discovery_intent SET scope_snapshot=?::jsonb,revision=revision+1 WHERE id=?",
-                                JSON.valueToTree(scope).toString(),
-                                run);
                         sessions.lockActive(scope);
                         String python =
                                 jdbc.queryForObject(
@@ -414,17 +516,29 @@ public class PostgresDispatchQueue implements DispatchQueue {
                                         ((Timestamp) row.get("technical_deadline"))
                                                 .toInstant()
                                                 .toString());
+                        LockOrder.beforePhysicalSlot();
+                        var slots =
+                                jdbc.queryForList(
+                                        "SELECT slot_no FROM discovery.execution_slot WHERE state='FREE' AND slot_no<=? ORDER BY slot_no FOR UPDATE SKIP LOCKED LIMIT 1",
+                                        Integer.class,
+                                        limits.executions());
+                        if (slots.isEmpty()) return null;
                         discovery.reserveExecution(
                                 scope,
                                 (String) row.get("round_id"),
                                 run,
                                 execution,
-                                slot,
+                                slots.getFirst(),
                                 javaBoot,
                                 python);
-                        jdbc.update(
-                                "UPDATE discovery.discovery_intent SET status='DISPATCHING',revision=revision+1 WHERE id=?",
-                                run);
+                        if (jdbc.update(
+                                        "UPDATE discovery.discovery_intent SET status='DISPATCHING',scope_snapshot=?::jsonb,revision=revision+1 WHERE id=? AND status='WAITING' AND revision=? AND queue_deadline>? AND technical_deadline>?",
+                                        JSON.valueToTree(scope).toString(),
+                                        run,
+                                        revision,
+                                        Timestamp.from(clock.instant()),
+                                        Timestamp.from(clock.instant()))
+                                != 1) fail("QUEUE_TIMEOUT");
                         var demands = new HashSet<String>();
                         json(row.get("demand_ids").toString())
                                 .forEach(n -> demands.add(n.asText()));
@@ -483,12 +597,17 @@ public class PostgresDispatchQueue implements DispatchQueue {
                     });
         } catch (PersistenceRejected | IllegalArgumentException failure) {
             if (selected.get() == null) throw failure;
+            var invalid = selected.get();
             tx.write(
                     () -> {
-                        discovery.lockRuntime();
+                        requireCoordinator(javaBoot);
+                        if (!sessions.lockOwner(invalid.subject())) return null;
+                        expire(invalid.subject());
                         jdbc.update(
-                                "UPDATE discovery.discovery_intent SET status='FAILED',error_code='INVALID_DISPATCH_PLAN',revision=revision+1 WHERE id=? AND status='WAITING'",
-                                selected.get());
+                                "UPDATE discovery.discovery_intent SET status='FAILED',error_code='INVALID_DISPATCH_PLAN',revision=revision+1 WHERE id=? AND subject_id=? AND status='WAITING' AND revision=?",
+                                invalid.run(),
+                                invalid.subject(),
+                                invalid.revision());
                         return null;
                     });
             return null;
@@ -558,12 +677,20 @@ public class PostgresDispatchQueue implements DispatchQueue {
     }
 
     @Override
-    public boolean markSending(Job job) {
+    public boolean markSending(String actingBoot, Job job) {
         return tx.write(
                 () -> {
-                    discovery.lockRuntime();
-                    if (!ready(job.coordinatorBoot())) return false;
-                    sessions.lockActive(sessions.refresh(job.scope()));
+                    requireCoordinator(actingBoot);
+                    if (!ready(actingBoot)
+                            || !job.coordinatorBoot().equals(actingBoot)
+                            || !sessions.lockOwner(job.scope().subjectId())) return false;
+                    var current = sessions.current(job.scope().subjectId());
+                    if (current.isEmpty()
+                            || !current.get().scope().sessionId().equals(job.scope().sessionId())
+                            || current.get().scope().subjectEpoch() != job.scope().subjectEpoch()
+                            || current.get().scope().sessionEpoch() != job.scope().sessionEpoch())
+                        return false;
+                    sessions.lockActive(current.get().scope());
                     if (!job.deadline().isAfter(clock.instant())) return false;
                     return jdbc.update(
                                     "UPDATE discovery.execution SET dispatch_attempts=dispatch_attempts+1,sent_at=coalesce(sent_at,?),revision=revision+1 WHERE id=? AND coordinator_boot=? AND python_boot=? AND dispatch_attempts=? AND dispatch_attempts<2 AND NOT cancellation_requested AND physical_released_at IS NULL",
@@ -577,6 +704,7 @@ public class PostgresDispatchQueue implements DispatchQueue {
     }
 
     private void stopLocked(Job job, String status) {
+        LockOrder.beforePhysicalSlot();
         jdbc.update(
                 "UPDATE discovery.discovery_intent SET status=?,error_code=?,revision=revision+1 WHERE id=? AND status IN ('WAITING','DISPATCHING','RUNNING')",
                 status,
@@ -591,18 +719,19 @@ public class PostgresDispatchQueue implements DispatchQueue {
     }
 
     @Override
-    public void stop(Job job, String status) {
+    public void stop(String actingBoot, Job job, String status) {
         if (!Set.of("INTERRUPTED", "EXPIRED", "CANCELLED", "SUPERSEDED").contains(status))
             fail("INVALID_TERMINAL_STATE");
         tx.write(
                 () -> {
-                    discovery.lockRuntime();
+                    if (lockJob(actingBoot, job).isEmpty()) return null;
                     stopLocked(job, status);
                     return null;
                 });
     }
 
     private void releaseLocked(Job job, String status) {
+        LockOrder.beforePhysicalSlot();
         jdbc.update(
                 "UPDATE discovery.discovery_intent SET status=?,revision=revision+1 WHERE id=? AND status IN ('DISPATCHING','RUNNING')",
                 status,
@@ -617,19 +746,19 @@ public class PostgresDispatchQueue implements DispatchQueue {
     }
 
     @Override
-    public void release(Job job, String status) {
+    public void release(String actingBoot, Job job, String status) {
         if (!Set.of("INTERRUPTED", "CANCELLED", "EXPIRED").contains(status))
             fail("INVALID_TERMINAL_STATE");
         tx.write(
                 () -> {
-                    discovery.lockRuntime();
+                    if (lockJob(actingBoot, job).isEmpty()) return null;
                     releaseLocked(job, status);
                     return null;
                 });
     }
 
     @Override
-    public void observe(Job job, String text) {
+    public void observe(String actingBoot, Job job, String text) {
         var view = json(text);
         if (!schema.validDefinition("ExecutionView", view)
                 || !view.path("execution_id").asText().equals(job.execution())
@@ -642,11 +771,7 @@ public class PostgresDispatchQueue implements DispatchQueue {
             fail("INVALID_PAYLOAD");
         tx.write(
                 () -> {
-                    discovery.lockRuntime();
-                    var rows =
-                            jdbc.queryForList(
-                                    "SELECT observed_seq,cancellation_requested FROM discovery.execution WHERE id=? AND physical_released_at IS NULL FOR UPDATE SKIP LOCKED",
-                                    job.execution());
+                    var rows = lockJob(actingBoot, job);
                     if (rows.isEmpty()
                             || ((Number) rows.getFirst().get("observed_seq")).longValue()
                                     > view.path("updated_seq").asLong()) return null;
@@ -655,6 +780,7 @@ public class PostgresDispatchQueue implements DispatchQueue {
                         return null;
                     }
                     boolean cancelling = (Boolean) rows.getFirst().get("cancellation_requested");
+                    LockOrder.beforePhysicalSlot();
                     jdbc.update(
                             "UPDATE discovery.execution SET state=?,observed_seq=?,revision=revision+1 WHERE id=?",
                             cancelling ? "CLOSING" : state,
@@ -670,6 +796,20 @@ public class PostgresDispatchQueue implements DispatchQueue {
                                 job.run());
                     return null;
                 });
+    }
+
+    private List<Map<String, Object>> lockJob(String actingBoot, Job job) {
+        requireCoordinator(actingBoot);
+        if (!sessions.lockOwner(job.scope().subjectId())) return List.of();
+        LockOrder.before(LockOrder.Level.EXECUTION, job.execution());
+        return jdbc.queryForList(
+                "SELECT e.observed_seq,e.cancellation_requested FROM discovery.execution e JOIN discovery.discovery_intent i ON i.id=e.run_id WHERE e.id=? AND e.session_id=? AND e.round_id=? AND e.coordinator_boot=? AND e.python_boot=? AND e.physical_released_at IS NULL AND i.subject_id=? FOR UPDATE OF e",
+                job.execution(),
+                job.scope().sessionId(),
+                job.round(),
+                job.coordinatorBoot(),
+                job.pythonBoot(),
+                job.scope().subjectId());
     }
 
     @Override
@@ -814,10 +954,17 @@ public class PostgresDispatchQueue implements DispatchQueue {
     }
 
     @Override
-    public void acknowledge(Command c) {
+    public void acknowledge(String actingBoot, Command c) {
+        var owners =
+                jdbc.queryForList(
+                        "SELECT i.subject_id FROM discovery.execution e JOIN discovery.discovery_intent i ON i.id=e.run_id WHERE e.id=?",
+                        String.class,
+                        c.execution());
+        if (owners.isEmpty()) return;
         tx.write(
                 () -> {
-                    discovery.lockRuntime();
+                    requireCoordinator(actingBoot);
+                    if (!sessions.lockOwner(owners.getFirst())) return null;
                     jdbc.update(
                             "UPDATE discovery.execution_command SET acknowledged=true WHERE id=? AND execution_id=?",
                             c.id(),
@@ -926,23 +1073,27 @@ public class PostgresDispatchQueue implements DispatchQueue {
     @Override
     public boolean canAccept(SessionStore.Scope scope, Limits limits) {
         sessions.lockActive(scope);
-        return !jdbc.queryForObject(
+        expire(scope.subjectId());
+        if (jdbc.queryForObject(
                         "SELECT maintenance FROM discovery.runtime_control WHERE singleton",
                         Boolean.class)
-                && hasAdmissionRoom(limits)
-                && jdbc.queryForObject(
+                || jdbc.queryForObject(
                                 "SELECT count(*) FROM discovery.discovery_intent WHERE subject_id=? AND status IN ('WAITING','DISPATCHING','RUNNING')",
                                 Long.class,
                                 scope.subjectId())
-                        == 0;
+                        != 0) return false;
+        lockAdmission();
+        return hasAdmissionRoom(limits);
     }
 
     private boolean hasAdmissionRoom(Limits limits) {
         // All arrivals pass through WAITING, including work about to claim an idle slot.
         return jdbc.queryForObject(
-                "SELECT (SELECT count(*) FROM discovery.discovery_intent WHERE status='WAITING')"
+                "SELECT (SELECT count(*) FROM discovery.discovery_intent WHERE status='WAITING' AND dispatch_plan IS NOT NULL AND queue_deadline>? AND technical_deadline>?)"
                         + " < ?::bigint + (SELECT count(*) FROM discovery.execution_slot WHERE state='FREE' AND slot_no<=?)",
                 Boolean.class,
+                Timestamp.from(clock.instant()),
+                Timestamp.from(clock.instant()),
                 limits.waiting(),
                 limits.executions());
     }

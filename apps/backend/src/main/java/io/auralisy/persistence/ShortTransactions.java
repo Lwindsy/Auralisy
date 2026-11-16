@@ -12,9 +12,11 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Component
 public final class ShortTransactions {
     private final PlatformTransactionManager manager;
+    private final RuntimeBarrier runtime;
 
-    public ShortTransactions(PlatformTransactionManager manager) {
+    public ShortTransactions(PlatformTransactionManager manager, RuntimeBarrier runtime) {
         this.manager = manager;
+        this.runtime = runtime;
     }
 
     public <T> T write(Supplier<T> action) {
@@ -25,11 +27,28 @@ public final class ShortTransactions {
         return execute(true, action);
     }
 
+    /** Lifecycle transitions start their own outer transaction; shared locks never upgrade. */
+    public <T> T writeExclusive(Supplier<T> action) {
+        if (TransactionSynchronizationManager.isActualTransactionActive())
+            throw new PersistenceRejected("LIFECYCLE_LOCK_UPGRADE_FORBIDDEN");
+        var template = new TransactionTemplate(manager);
+        template.setTimeout(5);
+        return template.execute(
+                status -> {
+                    runtime.exclusive();
+                    return action.get();
+                });
+    }
+
     private <T> T execute(boolean readOnly, Supplier<T> action) {
         var template = new TransactionTemplate(manager);
         template.setTimeout(5);
         template.setReadOnly(readOnly);
-        return template.execute(status -> action.get());
+        return template.execute(
+                status -> {
+                    if (!readOnly) runtime.shared();
+                    return action.get();
+                });
     }
 
     public static void requireWrite() {
@@ -42,5 +61,12 @@ public final class ShortTransactions {
         if (TransactionSynchronizationManager.isActualTransactionActive())
             throw new PersistenceRejected("EXTERNAL_IO_INSIDE_TRANSACTION");
         return action.get();
+    }
+
+    public static boolean isLockContention(Throwable failure) {
+        for (Throwable cause = failure; cause != null; cause = cause.getCause())
+            if (cause instanceof java.sql.SQLException sql && "55P03".equals(sql.getSQLState()))
+                return true;
+        return false;
     }
 }

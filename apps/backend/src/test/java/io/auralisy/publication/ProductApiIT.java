@@ -17,6 +17,462 @@ import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 @EnabledIfEnvironmentVariable(named = "AURALIS_TEST_POSTGRES_URL", matches = ".+")
 class ProductApiIT extends ProductApiFixture {
     @Test
+    void curatedKeysAreSubjectScopedAndLegacyRunReceiptsStillReplay() throws Exception {
+        int sends = peer.sends.get();
+        var a = browser();
+        var b = browser();
+        String key = "shared-curated-key";
+        var input = userInput("");
+        input.putArray("liked_genres");
+        input.putArray("disliked_genre_ids").add(ROCK);
+        var body =
+                JSON.createObjectNode().putNull("expected_session_id").put("expected_revision", 0);
+        body.set("input", input);
+        var first = a.request("POST", "/v1/discovery-sessions", body, key);
+        var second = b.request("POST", "/v1/discovery-sessions", body, key);
+        assertEquals(200, first.status(), first.body().toString());
+        assertEquals(200, second.status(), second.body().toString());
+        String original = first.body().path("run_id").asText();
+        String other = second.body().path("run_id").asText();
+        assertNotEquals(original, other);
+        assertNotEquals(a.session(), b.session());
+        assertEquals(
+                original,
+                a.request("POST", "/v1/discovery-sessions", body, key)
+                        .body()
+                        .path("run_id")
+                        .asText());
+
+        // Represent a persisted pre-change curated task. It has no Python dispatch record.
+        String legacy = digest(JSON.getNodeFactory().textNode("curated:" + key));
+        tx.write(
+                () -> {
+                    var scope =
+                            sessions.current(
+                                            subjects.authenticate(a.token())
+                                                    .orElseThrow()
+                                                    .subjectId())
+                                    .orElseThrow()
+                                    .scope();
+                    sessions.lockActive(scope);
+                    assertEquals(
+                            1,
+                            jdbc.update(
+                                    "INSERT INTO discovery.discovery_intent(id,subject_id,session_id,round_id,operation,input_revision,request_digest,accepted_at,queue_deadline,status,revision) SELECT ?,subject_id,session_id,round_id,operation,input_revision,request_digest,accepted_at,queue_deadline,status,revision FROM discovery.discovery_intent WHERE id=?",
+                                    legacy,
+                                    original));
+                    jdbc.update(
+                            "UPDATE discovery.long_review SET generation_run=?,revision=revision+1 WHERE session_id=? AND generation_run=?",
+                            legacy,
+                            a.session(),
+                            original);
+                    jdbc.update(
+                            "UPDATE discovery.publication_round SET run_id=? WHERE session_id=? AND run_id=?",
+                            legacy,
+                            a.session(),
+                            original);
+                    jdbc.update(
+                            "UPDATE discovery.recovery_projection SET state=jsonb_set(jsonb_set(state,'{run_id}',to_jsonb(?::text)),'{admission,intent_id}',to_jsonb(?::text)) WHERE session_id=?",
+                            legacy,
+                            legacy,
+                            a.session());
+                    assertEquals(
+                            1,
+                            jdbc.update(
+                                    "DELETE FROM discovery.discovery_intent WHERE id=?", original));
+                    return null;
+                });
+        var replay = a.request("POST", "/v1/discovery-sessions", body, key);
+        assertEquals(200, replay.status(), replay.body().toString());
+        assertEquals(a.session(), replay.body().path("session_id").asText());
+        assertEquals(legacy, replay.body().path("run_id").asText());
+        var independent = b.request("POST", "/v1/discovery-sessions", body, key);
+        assertEquals(200, independent.status(), independent.body().toString());
+        assertEquals(other, independent.body().path("run_id").asText());
+        assertEquals(sends, peer.sends.get());
+    }
+
+    @Test
+    void subjectBlockedInSubmissionDoesNotBlockAnotherSubjectsAdmission() throws Exception {
+        var blocked = browser();
+        var independent = browser();
+        String subject = subjects.authenticate(blocked.token()).orElseThrow().subjectId();
+        var actual = app.getBean(Recommendations.class);
+        var replayRead =
+                org.mockito.Mockito.mock(
+                        io.auralisy.session.api.SubjectSession.class,
+                        org.mockito.AdditionalAnswers.delegatesTo(subjects));
+        // Model a successful earlier read which found no receipt. The authoritative replace
+        // must still acquire this subject's row lock inside the write transaction.
+        org.mockito.Mockito.doReturn(Optional.empty())
+                .when(replayRead)
+                .replaySubmission(
+                        org.mockito.ArgumentMatchers.eq(blocked.token()),
+                        org.mockito.ArgumentMatchers.eq(blocked.csrf),
+                        org.mockito.ArgumentMatchers.eq("blocked-subject"),
+                        org.mockito.ArgumentMatchers.isNull(),
+                        org.mockito.ArgumentMatchers.eq(0L),
+                        org.mockito.ArgumentMatchers.anyString());
+        org.mockito.Mockito.doAnswer(
+                        invocation -> {
+                            // Only lengthen this test's deliberately blocked acquisition, in the
+                            // real
+                            // submission transaction. Do not wrap submit in a caller-owned
+                            // transaction.
+                            jdbc.execute("SET LOCAL lock_timeout='4s'");
+                            return subjects.replace(
+                                    invocation.getArgument(0),
+                                    invocation.getArgument(1),
+                                    invocation.getArgument(2),
+                                    invocation.getArgument(3),
+                                    invocation.<Long>getArgument(4),
+                                    invocation.getArgument(5),
+                                    invocation.getArgument(6));
+                        })
+                .when(replayRead)
+                .replace(
+                        org.mockito.ArgumentMatchers.eq(blocked.token()),
+                        org.mockito.ArgumentMatchers.eq(blocked.csrf),
+                        org.mockito.ArgumentMatchers.eq("blocked-subject"),
+                        org.mockito.ArgumentMatchers.isNull(),
+                        org.mockito.ArgumentMatchers.eq(0L),
+                        org.mockito.ArgumentMatchers.anyString(),
+                        org.mockito.ArgumentMatchers.anyString());
+        org.springframework.test.util.ReflectionTestUtils.setField(actual, "subjects", replayRead);
+        var body =
+                JSON.createObjectNode().putNull("expected_session_id").put("expected_revision", 0);
+        body.set("input", userInput(""));
+        peer.hold = true;
+        try (var worker = Executors.newSingleThreadExecutor();
+                var held = app.getBean(javax.sql.DataSource.class).getConnection()) {
+            held.setAutoCommit(false);
+            int blocker;
+            try (var statement = held.createStatement();
+                    var rows = statement.executeQuery("SELECT pg_backend_pid()")) {
+                assertTrue(rows.next());
+                blocker = rows.getInt(1);
+            }
+            try (var statement =
+                    held.prepareStatement(
+                            "SELECT id FROM discovery.subject WHERE id=? FOR UPDATE")) {
+                statement.setString(1, subject);
+                statement.executeQuery().close();
+            }
+            var waiting =
+                    worker.submit(
+                            () ->
+                                    actual.submit(
+                                            blocked.token(),
+                                            blocked.csrf,
+                                            "blocked-subject",
+                                            body.toString()));
+            try {
+                long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+                boolean observed;
+                do {
+                    observed =
+                            Boolean.TRUE.equals(
+                                    jdbc.queryForObject(
+                                            "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND ?=ANY(pg_blocking_pids(pid)))",
+                                            Boolean.class,
+                                            blocker));
+                    if (!observed) Thread.sleep(10);
+                } while (!observed && System.nanoTime() < until);
+                assertTrue(observed, "The first submission is actually waiting on its subject row");
+                var admitted = independent.submit(userInput(""), "other-subject");
+                assertEquals(202, admitted.status(), admitted.body().toString());
+                assertFalse(
+                        waiting.isDone(),
+                        "Unrelated admission must finish before the first subject unlocks");
+            } finally {
+                held.rollback();
+            }
+            assertTrue(
+                    JSON.readTree(waiting.get(5, TimeUnit.SECONDS)).path("session_id").isTextual());
+        } finally {
+            org.springframework.test.util.ReflectionTestUtils.setField(
+                    actual, "subjects", subjects);
+            peer.hold = false;
+            org.mockito.Mockito.framework().clearInlineMock(replayRead);
+        }
+    }
+
+    @Test
+    void concurrentIdenticalSubmissionsShareOneIntentAndExecution() throws Exception {
+        var browser = browser();
+        var body =
+                JSON.createObjectNode().putNull("expected_session_id").put("expected_revision", 0);
+        body.set("input", userInput(""));
+        var start = new CountDownLatch(1);
+        peer.hold = true;
+        try (var workers = Executors.newFixedThreadPool(4)) {
+            var requests = new ArrayList<java.util.concurrent.Future<Reply>>();
+            for (int n = 0; n < 4; n++)
+                requests.add(
+                        workers.submit(
+                                () -> {
+                                    assertTrue(start.await(5, TimeUnit.SECONDS));
+                                    return browser.request(
+                                            "POST",
+                                            "/v1/discovery-sessions",
+                                            body,
+                                            "same-in-flight-key");
+                                }));
+            start.countDown();
+            String session = null, run = null;
+            for (var pending : requests) {
+                var response = pending.get(10, TimeUnit.SECONDS);
+                assertEquals(202, response.status(), response.body().toString());
+                if (session == null) {
+                    session = response.body().path("session_id").asText();
+                    run = response.body().path("run_id").asText();
+                }
+                assertEquals(session, response.body().path("session_id").asText());
+                assertEquals(run, response.body().path("run_id").asText());
+            }
+            browser.awaitState(s -> s.path("admission").path("status").asText().equals("RUNNING"));
+            assertEquals(
+                    1,
+                    jdbc.queryForObject(
+                            "SELECT count(*) FROM discovery.discovery_intent WHERE session_id=?",
+                            Integer.class,
+                            session));
+            assertEquals(
+                    1,
+                    jdbc.queryForObject(
+                            "SELECT count(*) FROM discovery.execution WHERE run_id=?",
+                            Integer.class,
+                            run));
+            assertEquals(
+                    1,
+                    jdbc.queryForObject(
+                            "SELECT count(*) FROM discovery.command_receipt WHERE subject_id=(SELECT subject_id FROM discovery.session WHERE id=?) AND operation='SUBMIT' AND command_id='same-in-flight-key'",
+                            Integer.class,
+                            session));
+        } finally {
+            start.countDown();
+            peer.hold = false;
+        }
+    }
+
+    @Test
+    void queueFullReplacementRollsBackTheExistingSessionAndCancellation() throws Exception {
+        peer.hold = true;
+        var owner = browser();
+        assertEquals(202, owner.submit(userInput(""), "existing-running-session").status());
+        owner.awaitState(s -> s.path("admission").path("status").asText().equals("RUNNING"));
+        String original = owner.session();
+        String oldRun = owner.state.path("run_id").asText();
+        var oldInput =
+                JSON.readTree(
+                        jdbc.queryForObject(
+                                "SELECT raw_input::text FROM discovery.session WHERE id=?",
+                                String.class,
+                                original));
+        for (int n = 0; n < 2; n++) {
+            var busy = browser();
+            assertEquals(202, busy.submit(userInput(""), "occupied-" + n).status());
+            busy.awaitState(s -> s.path("admission").path("status").asText().equals("RUNNING"));
+        }
+        var queued = new ArrayList<Browser>();
+        for (int n = 0; n < 5; n++) {
+            var waiting = browser();
+            assertEquals(202, waiting.submit(userInput(""), "queued-existing-" + n).status());
+            queued.add(waiting);
+        }
+        owner.refresh();
+        var replacement =
+                JSON.createObjectNode()
+                        .put("expected_session_id", original)
+                        .put("expected_revision", owner.state.path("revision").asLong());
+        replacement.set(
+                "input", userInput("changed input while the old recommendation is running"));
+        var rejected =
+                owner.request("POST", "/v1/discovery-sessions", replacement, "replace-when-full");
+        assertEquals(429, rejected.status(), rejected.body().toString());
+        assertEquals("QUEUE_FULL", rejected.body().path("code").asText());
+        assertFalse(rejected.body().path("idempotency_consumed").asBoolean());
+        assertEquals(
+                "ACTIVE",
+                jdbc.queryForObject(
+                        "SELECT status FROM discovery.session WHERE id=?", String.class, original));
+        assertEquals(
+                original,
+                jdbc.queryForObject(
+                        "SELECT current_session_id FROM discovery.subject WHERE id=(SELECT subject_id FROM discovery.session WHERE id=?)",
+                        String.class,
+                        original));
+        assertEquals(
+                oldInput,
+                JSON.readTree(
+                        jdbc.queryForObject(
+                                "SELECT raw_input::text FROM discovery.session WHERE id=?",
+                                String.class,
+                                original)));
+        assertFalse(
+                jdbc.queryForObject(
+                        "SELECT cancellation_requested FROM discovery.execution WHERE run_id=?",
+                        Boolean.class,
+                        oldRun));
+        assertEquals(
+                "RUNNING",
+                jdbc.queryForObject(
+                        "SELECT status FROM discovery.discovery_intent WHERE id=?",
+                        String.class,
+                        oldRun));
+        assertEquals(
+                0,
+                jdbc.queryForObject(
+                        "SELECT count(*) FROM discovery.command_receipt WHERE subject_id=(SELECT subject_id FROM discovery.session WHERE id=?) AND command_id='replace-when-full'",
+                        Integer.class,
+                        original));
+        var removed = queued.getFirst();
+        subjects.erase(removed.token(), removed.csrf);
+        var accepted =
+                owner.request("POST", "/v1/discovery-sessions", replacement, "replace-when-full");
+        assertEquals(202, accepted.status(), accepted.body().toString());
+        assertNotEquals(original, accepted.body().path("session_id").asText());
+    }
+
+    @Test
+    void committedSubmissionCanReplayAfterResponseAndCatalogFailures() throws Exception {
+        var browser = browser();
+        var body =
+                JSON.createObjectNode().putNull("expected_session_id").put("expected_revision", 0);
+        body.set("input", userInput(""));
+        var actual = app.getBean(Recommendations.class);
+        var failing = org.mockito.Mockito.spy(actual);
+        var controller = app.getBean(io.auralisy.bootstrap.RecommendationHttpController.class);
+        org.mockito.Mockito.doThrow(
+                        new org.springframework.dao.DataAccessResourceFailureException(
+                                "private infrastructure detail"))
+                .doCallRealMethod()
+                .when(failing)
+                .state(
+                        org.mockito.ArgumentMatchers.eq(browser.token()),
+                        org.mockito.ArgumentMatchers.anyString(),
+                        org.mockito.ArgumentMatchers.eq(false));
+        org.springframework.test.util.ReflectionTestUtils.setField(
+                controller, "recommendations", failing);
+        peer.hold = true;
+        try {
+            var unavailable =
+                    browser.request("POST", "/v1/discovery-sessions", body, "committed-response");
+            assertEquals(503, unavailable.status(), unavailable.body().toString());
+            assertEquals("DEPENDENCY_UNAVAILABLE", unavailable.body().path("code").asText());
+            assertTrue(unavailable.body().path("idempotency_consumed").asBoolean());
+            assertTrue(unavailable.body().path("retryable").asBoolean());
+            assertEquals("RETRY_SAME_KEY", unavailable.body().path("retry_disposition").asText());
+            assertFalse(unavailable.body().toString().contains("private infrastructure detail"));
+            String subject = subjects.authenticate(browser.token()).orElseThrow().subjectId();
+            String session =
+                    jdbc.queryForObject(
+                            "SELECT id FROM discovery.session WHERE subject_id=? AND status='ACTIVE'",
+                            String.class,
+                            subject);
+            String run =
+                    jdbc.queryForObject(
+                            "SELECT id FROM discovery.discovery_intent WHERE session_id=?",
+                            String.class,
+                            session);
+            assertEquals(
+                    1,
+                    jdbc.queryForObject(
+                            "SELECT count(*) FROM discovery.command_receipt WHERE subject_id=? AND operation='SUBMIT' AND command_id='committed-response'",
+                            Integer.class,
+                            subject));
+
+            // Existing receipts must remain usable when new catalog work is unavailable.
+            io.auralisy.catalog.api.CatalogVersion unavailableCatalog =
+                    () -> {
+                        throw new io.auralisy.persistence.PersistenceRejected(
+                                "RECOMMENDATION_UNAVAILABLE");
+                    };
+            org.springframework.test.util.ReflectionTestUtils.setField(
+                    failing, "versions", unavailableCatalog);
+            var replay =
+                    browser.request("POST", "/v1/discovery-sessions", body, "committed-response");
+            assertEquals(202, replay.status(), replay.body().toString());
+            assertEquals(session, replay.body().path("session_id").asText());
+            assertEquals(run, replay.body().path("run_id").asText());
+            browser.awaitState(s -> s.path("admission").path("status").asText().equals("RUNNING"));
+            assertEquals(
+                    1,
+                    jdbc.queryForObject(
+                            "SELECT count(*) FROM discovery.execution WHERE run_id=?",
+                            Integer.class,
+                            run));
+            assertEquals(
+                    1,
+                    jdbc.queryForObject(
+                            "SELECT count(*) FROM discovery.discovery_intent WHERE session_id=?",
+                            Integer.class,
+                            session));
+
+            var changed = body.deepCopy();
+            ((ObjectNode) changed.path("input")).put("request_text", "different request");
+            var conflict =
+                    browser.request(
+                            "POST", "/v1/discovery-sessions", changed, "committed-response");
+            assertEquals(409, conflict.status());
+            assertEquals("IDEMPOTENCY_CONFLICT", conflict.body().path("code").asText());
+            var newRequest =
+                    browser.request("POST", "/v1/discovery-sessions", body, "not-committed");
+            assertEquals(503, newRequest.status());
+            assertFalse(newRequest.body().path("idempotency_consumed").asBoolean());
+            assertEquals(
+                    0,
+                    jdbc.queryForObject(
+                            "SELECT count(*) FROM discovery.command_receipt WHERE subject_id=? AND operation='SUBMIT' AND command_id='not-committed'",
+                            Integer.class,
+                            subject));
+        } finally {
+            org.springframework.test.util.ReflectionTestUtils.setField(
+                    controller, "recommendations", actual);
+            peer.hold = false;
+            org.mockito.Mockito.framework().clearInlineMock(failing);
+        }
+    }
+
+    @Test
+    void revocationAfterCommitIsTerminalRatherThanRetryable() throws Exception {
+        var browser = browser();
+        var actual = app.getBean(Recommendations.class);
+        var revoked =
+                org.mockito.Mockito.mock(
+                        io.auralisy.session.api.SubjectSession.class,
+                        org.mockito.AdditionalAnswers.delegatesTo(subjects));
+        try (var eraser = Executors.newSingleThreadExecutor()) {
+            org.mockito.Mockito.doAnswer(
+                            invocation -> {
+                                // Revoke on another transaction after submit committed, before its
+                                // response
+                                // takes the subject lock. The failed response must not undo that
+                                // revocation.
+                                eraser.submit(() -> subjects.erase(browser.token(), browser.csrf))
+                                        .get(5, TimeUnit.SECONDS);
+                                return subjects.authenticate(browser.token());
+                            })
+                    .when(revoked)
+                    .authenticate(browser.token());
+            org.springframework.test.util.ReflectionTestUtils.setField(actual, "subjects", revoked);
+            peer.hold = true;
+            var result = browser.submit(userInput(""), "revoked-after-commit");
+            assertEquals(400, result.status(), result.body().toString());
+            assertTrue(result.body().path("idempotency_consumed").asBoolean());
+            assertFalse(result.body().path("retryable").asBoolean());
+            assertEquals("STOP", result.body().path("retry_disposition").asText());
+            assertFalse(result.body().has("session_id"));
+            assertTrue(subjects.authenticate(browser.token()).isEmpty());
+        } finally {
+            org.springframework.test.util.ReflectionTestUtils.setField(
+                    actual, "subjects", subjects);
+            peer.hold = false;
+            org.mockito.Mockito.framework().clearInlineMock(revoked);
+        }
+    }
+
+    @Test
     void slowSubmitResponseDoesNotBlockAnotherSubjectsAdmission() throws Exception {
         var first = browser();
         var second = browser();
@@ -188,7 +644,10 @@ class ProductApiIT extends ProductApiFixture {
     @org.junit.jupiter.params.provider.ValueSource(ints = {1, 5})
     void exhaustedContinuationContinuesThePendingBatchIntoANewRound(int sequence) throws Exception {
         var b = browser();
-        b.submit(userInput(""), "drained-initial");
+        var originalSubmission =
+                JSON.createObjectNode().putNull("expected_session_id").put("expected_revision", 0);
+        originalSubmission.set("input", userInput(""));
+        b.request("POST", "/v1/discovery-sessions", originalSubmission, "drained-initial");
         b.awaitState(s -> s.path("status").asText().equals("SUCCEEDED"));
         String originalRound = b.state.path("round_id").asText();
         for (var job : peer.jobs.values()) job.done.get(10, java.util.concurrent.TimeUnit.SECONDS);
@@ -223,6 +682,18 @@ class ProductApiIT extends ProductApiFixture {
                 java.util.stream.StreamSupport.stream(b.state.path("slots").spliterator(), false)
                         .filter(slot -> slot.path("status").asText().equals("READY"))
                         .count());
+        var currentTask = b.state.deepCopy();
+        var oldSubmission =
+                b.request("POST", "/v1/discovery-sessions", originalSubmission, "drained-initial");
+        assertEquals(400, oldSubmission.status(), oldSubmission.body().toString());
+        assertEquals("RESOURCE_UNAVAILABLE", oldSubmission.body().path("code").asText());
+        assertTrue(oldSubmission.body().path("idempotency_consumed").asBoolean());
+        assertFalse(oldSubmission.body().path("retryable").asBoolean());
+        assertEquals("STOP", oldSubmission.body().path("retry_disposition").asText());
+        assertFalse(oldSubmission.body().has("run_id"));
+        b.refresh();
+        assertEquals(currentTask.path("round_id"), b.state.path("round_id"));
+        assertEquals(currentTask.path("run_id"), b.state.path("run_id"));
         assertTrue(peer.failures.isEmpty(), peer.failures.toString());
     }
 
