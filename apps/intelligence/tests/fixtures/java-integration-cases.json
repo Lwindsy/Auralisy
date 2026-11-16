@@ -176,6 +176,30 @@
         }
       ]
     },
+    "structural_valid": true,
+    "semantic_valid": false
+  },
+  {
+    "name": "sixteen-execution-capacity",
+    "definition": "RuntimeView",
+    "payload": {
+      "boot_id": "python-1",
+      "status": "READY",
+      "execution_capacity": 16,
+      "active": []
+    },
+    "structural_valid": true,
+    "semantic_valid": true
+  },
+  {
+    "name": "unsupported-execution-capacity",
+    "definition": "RuntimeView",
+    "payload": {
+      "boot_id": "python-1",
+      "status": "READY",
+      "execution_capacity": 17,
+      "active": []
+    },
     "structural_valid": false,
     "semantic_valid": false
   },

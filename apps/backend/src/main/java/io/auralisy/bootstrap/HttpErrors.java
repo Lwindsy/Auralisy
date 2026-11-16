@@ -24,6 +24,22 @@ public final class HttpErrors implements ErrorController {
     public void write(
             HttpServletRequest request, HttpServletResponse response, int status, String code)
             throws IOException {
+        write(request, response, status, code, false);
+    }
+
+    public void writeCommitted(
+            HttpServletRequest request, HttpServletResponse response, int status, String code)
+            throws IOException {
+        write(request, response, status, code, true);
+    }
+
+    private void write(
+            HttpServletRequest request,
+            HttpServletResponse response,
+            int status,
+            String code,
+            boolean committed)
+            throws IOException {
         response.setStatus(status);
         response.setContentType("application/json");
         response.setHeader("Cache-Control", "no-store");
@@ -50,18 +66,23 @@ public final class HttpErrors implements ErrorController {
                     code.startsWith("CATALOG_")
                             && (status == 429 || status == 503 || status == 504);
             boolean retry =
-                    catalogRetry
+                    (committed && code.equals("DEPENDENCY_UNAVAILABLE"))
+                            || catalogRetry
                             || code.equals("QUEUE_FULL")
                             || code.equals("MAINTENANCE")
                             || code.equals("RECOMMENDATION_UNAVAILABLE");
             body.put("retryable", retry);
-            body.put("idempotency_consumed", false);
+            body.put("idempotency_consumed", committed);
             body.put("current_revision", null);
             body.put(
                     "retry_disposition",
                     retry
                             ? "RETRY_SAME_KEY"
-                            : code.equals("REVISION_CONFLICT") ? "POLL_STATE" : "STOP");
+                            : code.equals("REVISION_CONFLICT")
+                                    ? "POLL_STATE"
+                                    : committed && code.equals("QUEUE_TIMEOUT")
+                                            ? "NEW_EXPLICIT_INTENT"
+                                            : "STOP");
         }
         mapper.writeValue(response.getOutputStream(), body);
     }

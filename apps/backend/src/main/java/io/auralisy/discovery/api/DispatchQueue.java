@@ -17,13 +17,10 @@ public interface DispatchQueue {
 
         public Limits {
             if (executions < 1
-                    || executions > 3
+                    || executions > 16
                     || waiting < 1
-                    || waiting > 5
                     || queueSeconds < 1
-                    || queueSeconds > 30
                     || executionSeconds < 1
-                    || executionSeconds > 180
                     || queueSeconds > executionSeconds)
                 throw new IllegalArgumentException("INVALID_DISPATCH_LIMITS");
         }
@@ -106,19 +103,21 @@ public interface DispatchQueue {
 
     Job claim(String coordinatorBoot, Limits limits);
 
-    boolean markSending(Job job);
+    boolean markSending(String actingBoot, Job job);
 
-    void observe(Job job, String executionView);
+    void observe(String actingBoot, Job job, String executionView);
 
-    void stop(Job job, String runStatus);
+    void stop(String actingBoot, Job job, String runStatus);
 
-    void release(Job job, String runStatus);
+    void release(String actingBoot, Job job, String runStatus);
 
     void cancel(Scope scope, String run);
 
     Context context(String execution);
 
     Accepted status(Scope scope, String run);
+
+    java.util.Optional<String> submittedRun(Scope scope, String command);
 
     Set<String> demands(Scope scope, String run);
 
@@ -135,7 +134,7 @@ public interface DispatchQueue {
 
     List<Command> commands();
 
-    void acknowledge(Command command);
+    void acknowledge(String actingBoot, Command command);
 
     void display(Scope scope, String round, String state, String command);
 

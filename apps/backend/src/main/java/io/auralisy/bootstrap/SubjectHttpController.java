@@ -71,14 +71,13 @@ public class SubjectHttpController {
     }
 
     @GetMapping(value = "/v1/current-state", produces = "application/json")
-    public JsonNode current(HttpServletRequest request) throws Exception {
-        return json.readTree(recommendations.state(SubjectCookies.credential(request), null, true));
+    public String current(HttpServletRequest request) throws Exception {
+        return recommendations.state(SubjectCookies.credential(request), null, true);
     }
 
     @GetMapping(value = "/v1/discovery-sessions/{sessionId}", produces = "application/json")
-    public JsonNode session(@PathVariable String sessionId, HttpServletRequest request)
+    public String session(@PathVariable String sessionId, HttpServletRequest request)
             throws Exception {
-        return json.readTree(
-                recommendations.state(SubjectCookies.credential(request), sessionId, true));
+        return recommendations.state(SubjectCookies.credential(request), sessionId, true);
     }
 }

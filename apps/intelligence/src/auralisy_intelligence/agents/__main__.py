@@ -163,7 +163,9 @@ def serve(args):
 
     app = create_execution_app(
         RoundSupervisor(
-            resources=resources, receipt_timeout_seconds=config.get("receipt_timeout_seconds", 1.0)
+            execution_capacity=config.get("execution_capacity", 3),
+            resources=resources,
+            receipt_timeout_seconds=config.get("receipt_timeout_seconds", 1.0),
         ),
         control,
         factory,

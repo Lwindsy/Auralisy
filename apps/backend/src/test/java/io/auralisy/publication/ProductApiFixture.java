@@ -181,8 +181,16 @@ abstract class ProductApiFixture extends PublicationFixture {
         while (!app.getBean(DispatchQueue.class).active().isEmpty() && System.nanoTime() < until)
             Thread.sleep(50);
         peer.cancelAll();
-        for (var job : app.getBean(DispatchQueue.class).active())
-            app.getBean(DispatchQueue.class).release(job, "INTERRUPTED");
+        var dispatchQueue = app.getBean(DispatchQueue.class);
+        var remaining = dispatchQueue.active();
+        if (!remaining.isEmpty()) {
+            String coordinator =
+                    jdbc.queryForObject(
+                            "SELECT coordinator_boot FROM discovery.runtime_control WHERE singleton",
+                            String.class);
+            assertNotNull(coordinator);
+            for (var job : remaining) dispatchQueue.release(coordinator, job, "INTERRUPTED");
+        }
         subjects.cleanup(100);
         browsers.clear();
         peer.hold = false;

@@ -12,6 +12,8 @@ import java.time.*;
 import java.util.*;
 import java.util.concurrent.*;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class PythonClientIT {
     static final String TOKEN = "be010-real-python-loopback-token-12345";
@@ -21,6 +23,10 @@ class PythonClientIT {
         final PythonHttpClient client;
 
         ProcessPeer(String javaBoot) throws Exception {
+            this(javaBoot, 3);
+        }
+
+        ProcessPeer(String javaBoot, int capacity) throws Exception {
             String python = System.getenv("AURALIS_RECALL_PYTHON");
             assertNotNull(python);
             var intelligence =
@@ -36,14 +42,23 @@ class PythonClientIT {
                     await asyncio.Event().wait()
                 async def main():
                     control=JavaControlDouble(sys.argv[1])
-                    app=create_execution_app(RoundSupervisor(),control,lambda _:stage,token=sys.argv[2],prepare=control.register)
+                    supervisor=RoundSupervisor(execution_capacity=int(sys.argv[3]))
+                    app=create_execution_app(supervisor,control,lambda _:stage,token=sys.argv[2],prepare=control.register)
                     runner=web.AppRunner(app);await runner.setup()
                     site=web.TCPSite(runner,'127.0.0.1',0);await site.start()
                     print(site._server.sockets[0].getsockname()[1],flush=True)
                     await asyncio.Event().wait()
                 asyncio.run(main())
                 """;
-            var command = new ProcessBuilder(python, "-u", "-c", script, javaBoot, TOKEN);
+            var command =
+                    new ProcessBuilder(
+                            python,
+                            "-u",
+                            "-c",
+                            script,
+                            javaBoot,
+                            TOKEN,
+                            Integer.toString(capacity));
             command.environment().put("PYTHONPATH", intelligence.resolve("src").toString());
             command.redirectError(ProcessBuilder.Redirect.INHERIT);
             process = command.start();
@@ -97,15 +112,16 @@ class PythonClientIT {
         return p;
     }
 
-    @Test
-    void actualPythonCapacityDedupCancellationAndBootEvidence() throws Exception {
+    @ParameterizedTest
+    @ValueSource(ints = {3, 8})
+    void actualPythonCapacityDedupCancellationAndBootEvidence(int capacity) throws Exception {
         String originalBoot;
-        try (var peer = new ProcessPeer("java-http")) {
+        try (var peer = new ProcessPeer("java-http", capacity)) {
             var runtime = JSON.readTree(peer.client.runtime());
             originalBoot = runtime.path("boot_id").asText();
-            assertEquals(3, runtime.path("execution_capacity").asInt());
+            assertEquals(capacity, runtime.path("execution_capacity").asInt());
             var plans = new ArrayList<ObjectNode>();
-            for (int n = 0; n < 3; n++) {
+            for (int n = 0; n < capacity; n++) {
                 var p = start("java-http", originalBoot);
                 plans.add(p);
                 peer.client.start(p.path("execution_id").asText(), p.toString());
@@ -113,20 +129,20 @@ class PythonClientIT {
             var first = plans.getFirst();
             String id = first.path("execution_id").asText();
             peer.client.start(id, first.toString());
-            assertEquals(3, JSON.readTree(peer.client.runtime()).path("active").size());
-            var fourth = start("java-http", originalBoot);
+            assertEquals(capacity, JSON.readTree(peer.client.runtime()).path("active").size());
+            var overflow = start("java-http", originalBoot);
             assertThrows(
                     PythonClient.Unavailable.class,
                     () ->
                             peer.client.start(
-                                    fourth.path("execution_id").asText(), fourth.toString()));
+                                    overflow.path("execution_id").asText(), overflow.toString()));
             var absent =
                     JSON.readTree(
                             peer.client.admission(
-                                    fourth.path("execution_id").asText(),
+                                    overflow.path("execution_id").asText(),
                                     originalBoot,
-                                    fourth.path("payload_digest").asText(),
-                                    fourth.path("deadlines").path("round_deadline_at").asText()));
+                                    overflow.path("payload_digest").asText(),
+                                    overflow.path("deadlines").path("round_deadline_at").asText()));
             assertEquals("NOT_ACCEPTED", absent.path("status").asText());
             assertTrue(
                     JSON.readTree(
@@ -134,7 +150,7 @@ class PythonClientIT {
                                             id, "java-http", originalBoot, "USER_CANCELLED"))
                             .path("slot_released")
                             .asBoolean());
-            assertEquals(2, JSON.readTree(peer.client.runtime()).path("active").size());
+            assertEquals(capacity - 1, JSON.readTree(peer.client.runtime()).path("active").size());
             assertEquals(
                     "TERMINAL",
                     JSON.readTree(
@@ -147,10 +163,10 @@ class PythonClientIT {
                                                     .asText()))
                             .path("status")
                             .asText());
-            peer.client.start(fourth.path("execution_id").asText(), fourth.toString());
-            assertEquals(3, JSON.readTree(peer.client.runtime()).path("active").size());
+            peer.client.start(overflow.path("execution_id").asText(), overflow.toString());
+            assertEquals(capacity, JSON.readTree(peer.client.runtime()).path("active").size());
         }
-        try (var restarted = new ProcessPeer("java-http")) {
+        try (var restarted = new ProcessPeer("java-http", capacity)) {
             assertNotEquals(
                     originalBoot,
                     JSON.readTree(restarted.client.runtime()).path("boot_id").asText());

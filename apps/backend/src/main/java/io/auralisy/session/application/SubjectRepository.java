@@ -4,6 +4,7 @@ import io.auralisy.session.api.SessionStore;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 public interface SubjectRepository {
     record Subject(
@@ -67,7 +68,11 @@ public interface SubjectRepository {
 
     List<Session> expiredSessions(Instant now, int limit);
 
-    Optional<Job> nextJob(Instant now);
+    /** Non-locking candidate lookup; the caller must lock its subject before lockJob. */
+    Optional<Job> nextJob(Instant now, Set<String> excludedOwners);
+
+    /** Recheck a candidate under its already-locked subject; a changed/deferred job is skipped. */
+    Optional<Job> lockJob(Job candidate, Instant now);
 
     void defer(String job, Instant at);
 

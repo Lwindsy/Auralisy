@@ -10,8 +10,11 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -276,16 +279,48 @@ public class PostgresSubjectRepository implements SubjectRepository {
     }
 
     @Override
-    public Optional<Job> nextJob(Instant now) {
+    public Optional<Job> nextJob(Instant now, Set<String> excludedOwners) {
+        String exclusion =
+                excludedOwners.isEmpty()
+                        ? ""
+                        : " AND subject_id NOT IN ("
+                                + String.join(",", Collections.nCopies(excludedOwners.size(), "?"))
+                                + ")";
+        var arguments = new ArrayList<Object>();
+        arguments.add(Timestamp.from(now));
+        arguments.addAll(excludedOwners.stream().sorted().toList());
         return jdbc
                 .query(
-                        "SELECT id,subject_id,session_id,barrier_epoch FROM discovery.deletion_job WHERE next_attempt_at<=? ORDER BY next_attempt_at,id LIMIT 1 FOR UPDATE SKIP LOCKED",
+                        "SELECT id,subject_id,session_id,barrier_epoch FROM discovery.deletion_job WHERE next_attempt_at<=?"
+                                + exclusion
+                                + " ORDER BY next_attempt_at,id LIMIT 1",
                         (r, n) ->
                                 new Job(
                                         r.getString(1),
                                         r.getString(2),
                                         r.getString(3),
                                         r.getLong(4)),
+                        arguments.toArray())
+                .stream()
+                .findFirst();
+    }
+
+    @Override
+    public Optional<Job> lockJob(Job candidate, Instant now) {
+        ShortTransactions.requireWrite();
+        return jdbc
+                .query(
+                        "SELECT id,subject_id,session_id,barrier_epoch FROM discovery.deletion_job WHERE id=? AND subject_id=? AND session_id IS NOT DISTINCT FROM ? AND barrier_epoch=? AND next_attempt_at<=? FOR UPDATE",
+                        (r, n) ->
+                                new Job(
+                                        r.getString(1),
+                                        r.getString(2),
+                                        r.getString(3),
+                                        r.getLong(4)),
+                        candidate.id(),
+                        candidate.subjectId(),
+                        candidate.sessionId(),
+                        candidate.epoch(),
                         Timestamp.from(now))
                 .stream()
                 .findFirst();

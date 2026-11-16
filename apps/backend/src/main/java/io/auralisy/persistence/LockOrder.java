@@ -23,7 +23,7 @@ public final class LockOrder {
 
     private LockOrder() {}
 
-    public static void before(Level level, String id) {
+    public static boolean before(Level level, String id) {
         ShortTransactions.requireWrite();
         var state = (State) TransactionSynchronizationManager.getResource(KEY);
         if (state == null) {
@@ -38,7 +38,9 @@ public final class LockOrder {
                     });
         }
         String key = level.name() + ":" + id;
-        if (state.held.contains(key)) return;
+        if (state.held.contains(key)) return false;
+        if (level == Level.SUBJECT && (state.admission || state.physicalSlot))
+            throw new PersistenceRejected("RESOURCE_LOCK_OWNER_CHANGED");
         if (state.level != null
                 && (level.ordinal() < state.level.ordinal()
                         || (level == state.level && id.compareTo(state.id) < 0)))
@@ -46,10 +48,37 @@ public final class LockOrder {
         state.held.add(key);
         state.level = level;
         state.id = id;
+        if (level == Level.SUBJECT) state.subjects.add(id);
+        return true;
+    }
+
+    /** A capacity decision may follow private locks, but may not expand its owner scope. */
+    public static boolean beforeAdmission() {
+        var state = ownedResource();
+        if (state.physicalSlot) throw new PersistenceRejected("CAPACITY_LOCK_ORDER_VIOLATION");
+        if (state.admission) return false;
+        state.admission = true;
+        return true;
+    }
+
+    public static void beforePhysicalSlot() {
+        var state = ownedResource();
+        if (state.admission) throw new PersistenceRejected("CAPACITY_LOCK_ORDER_VIOLATION");
+        state.physicalSlot = true;
+    }
+
+    private static State ownedResource() {
+        ShortTransactions.requireWrite();
+        var state = (State) TransactionSynchronizationManager.getResource(KEY);
+        if (state == null || state.subjects.size() != 1)
+            throw new PersistenceRejected("RESOURCE_LOCK_OWNER_REQUIRED");
+        return state;
     }
 
     private static final class State {
         final Set<String> held = new HashSet<>();
+        final Set<String> subjects = new HashSet<>();
+        boolean admission, physicalSlot;
         Level level;
         String id;
     }

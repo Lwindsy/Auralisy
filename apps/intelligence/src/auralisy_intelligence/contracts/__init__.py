@@ -50,8 +50,28 @@ def validate_definition(name: str, payload: Any) -> None:
 
 
 def validate_message(message: Mapping[str, Any]) -> None:
-    validate_definition("Envelope", message)
-    validate_definition(message["message_type"], message["payload"])
+    if not isinstance(message, Mapping):
+        raise ContractError("INVALID_PAYLOAD")
+    document = schema()
+    name = message.get("message_type")
+    # Every wire variant has a distinct required message_type constant. Validate its
+    # entire branch, including payload structure, without trying unrelated variants.
+    branch = next(
+        (
+            index
+            for index, variant in enumerate(document["$defs"]["Envelope"]["oneOf"])
+            if variant["properties"]["message_type"]["const"] == name
+        ),
+        None,
+    )
+    if branch is None:
+        raise ContractError("INVALID_PAYLOAD")
+    validator = Draft202012Validator(
+        {**document, "$ref": f"#/$defs/Envelope/oneOf/{branch}"}, format_checker=FormatChecker()
+    )
+    if next(validator.iter_errors(message), None) is not None:
+        raise ContractError("INVALID_PAYLOAD")
+    _semantic(name, message["payload"])
 
 
 def envelope(

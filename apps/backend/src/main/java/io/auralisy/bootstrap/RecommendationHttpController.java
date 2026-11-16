@@ -4,6 +4,7 @@ import static io.auralisy.contracts.CanonicalJson.JSON;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import io.auralisy.catalog.api.CatalogFailure;
+import io.auralisy.discovery.api.CommittedSubmissionFailure;
 import io.auralisy.discovery.application.Recommendations;
 import io.auralisy.persistence.PersistenceRejected;
 import io.auralisy.preference.api.PreferenceRejected;
@@ -128,6 +129,40 @@ public class RecommendationHttpController {
         return action(request, session, "REGENERATE", candidate);
     }
 
+    @ExceptionHandler(CommittedSubmissionFailure.class)
+    public void committedFailure(
+            CommittedSubmissionFailure failure,
+            HttpServletRequest request,
+            HttpServletResponse response)
+            throws java.io.IOException {
+        String code = failure.getMessage();
+        errors.writeCommitted(
+                request,
+                response,
+                code.equals("DEPENDENCY_UNAVAILABLE") ? 503 : rejectionStatus(code),
+                code);
+    }
+
+    private static int rejectionStatus(String code) {
+        return code.equals("QUEUE_FULL")
+                ? 429
+                : code.equals("EXPIRED")
+                        ? 400
+                        : code.equals("FORBIDDEN")
+                                ? 400
+                                : code.contains("CONFLICT") || code.equals("EXECUTOR_BUSY")
+                                        ? 409
+                                        : Set.of(
+                                                                "RECOMMENDATION_UNAVAILABLE",
+                                                                "INVALID_EXECUTION_CONFIGURATION",
+                                                                "CURATED_UNAVAILABLE",
+                                                                "MAINTENANCE",
+                                                                "CATALOG_VERSION_CHANGED")
+                                                        .contains(code)
+                                                ? 503
+                                                : 400;
+    }
+
     @ExceptionHandler({
         PersistenceRejected.class,
         CatalogFailure.class,
@@ -144,24 +179,7 @@ public class RecommendationHttpController {
                                 || failure instanceof CatalogFailure
                         ? failure.getMessage()
                         : "INVALID_PAYLOAD";
-        int status =
-                code.equals("QUEUE_FULL")
-                        ? 429
-                        : code.equals("EXPIRED")
-                                ? 400
-                                : code.equals("FORBIDDEN")
-                                        ? 400
-                                        : code.contains("CONFLICT") || code.equals("EXECUTOR_BUSY")
-                                                ? 409
-                                                : Set.of(
-                                                                        "RECOMMENDATION_UNAVAILABLE",
-                                                                        "INVALID_EXECUTION_CONFIGURATION",
-                                                                        "CURATED_UNAVAILABLE",
-                                                                        "MAINTENANCE",
-                                                                        "CATALOG_VERSION_CHANGED")
-                                                                .contains(code)
-                                                        ? 503
-                                                        : 400;
+        int status = rejectionStatus(code);
         if (failure instanceof CatalogFailure catalog) status = catalog.status() >= 500 ? 503 : 400;
         errors.write(request, response, status, code);
     }

@@ -12,6 +12,7 @@ public interface DiscoveryStore {
             Instant acceptedAt,
             Instant deadline) {}
 
+    /** Reentrant shared lifecycle barrier; ordinary subjects do not exclude each other. */
     void lockRuntime();
 
     void createRound(
@@ -55,6 +56,9 @@ public interface DiscoveryStore {
     record Round(String id, int sequence, String configuration, java.time.Instant deadline) {}
 
     java.util.Optional<Round> latestRound(Scope scope);
+
+    /** Same ownership and latest-round ordering as latestRound, without loading configuration. */
+    java.util.Optional<String> latestRoundId(Scope scope);
 
     Round roundInfo(Scope scope, String round);
 

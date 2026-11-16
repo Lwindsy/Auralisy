@@ -7,6 +7,7 @@
   "control_token_env": "AURALIS_CONTROL_TOKEN",
   "provider_key_env": "AURALIS_PRODUCT_TEST_API_KEY",
   "receipt_timeout_seconds": 1.0,
+  "execution_capacity": 3,
   "evidence_mode": "live",
   "service_resources": {
     "model": 6,

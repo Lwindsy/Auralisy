@@ -32,6 +32,43 @@ import org.springframework.orm.jpa.EntityManagerFactoryUtils;
 @EnabledIfEnvironmentVariable(named = "AURALIS_TEST_POSTGRES_URL", matches = ".+")
 class DiscoveryPersistenceIT {
     @Test
+    void lightweightLatestRoundKeepsOrderingOwnershipAndExpiryChecks() {
+        var scope = session();
+        var expiry = sessions.current(scope.subjectId()).orElseThrow().expiresAt();
+        assertTrue(tx.write(() -> discovery.latestRoundId(scope)).isEmpty());
+        round(scope);
+        String latest = id();
+        tx.write(
+                () -> {
+                    discovery.createRound(
+                            scope,
+                            latest,
+                            2,
+                            "{\"large_configuration\":\"" + "x".repeat(150000) + "\"}",
+                            "{}",
+                            Instant.now().plusSeconds(120));
+                    assertEquals(
+                            discovery.latestRound(scope).orElseThrow().id(),
+                            discovery.latestRoundId(scope).orElseThrow());
+                    return null;
+                });
+        assertEquals(latest, tx.write(() -> discovery.latestRoundId(scope)).orElseThrow());
+        assertEquals(expiry, sessions.current(scope.subjectId()).orElseThrow().expiresAt());
+        var foreign =
+                new Scope(
+                        id(),
+                        scope.sessionId(),
+                        scope.subjectEpoch(),
+                        scope.sessionEpoch(),
+                        scope.revision());
+        assertThrows(
+                PersistenceRejected.class, () -> tx.write(() -> discovery.latestRoundId(foreign)));
+        tx.write(() -> sessions.close(scope, "DELETED"));
+        assertThrows(
+                PersistenceRejected.class, () -> tx.write(() -> discovery.latestRoundId(scope)));
+    }
+
+    @Test
     void connectionPoolWaitIsBoundedAndStatusReadHasNoSideEffects() throws Exception {
         var scope = session();
         var before = sessions.current(scope.subjectId()).orElseThrow();
@@ -513,7 +550,7 @@ class DiscoveryPersistenceIT {
                             .load();
             flyway.migrate();
             flyway.validate();
-            assertEquals("17", flyway.info().current().getVersion().toString());
+            assertEquals("19", flyway.info().current().getVersion().toString());
             assertEquals(0, flyway.migrate().migrationsExecuted);
             try (var c = DriverManager.getConnection(target, "be005_migrator", PASSWORD);
                     var s = c.createStatement()) {
@@ -778,7 +815,7 @@ class DiscoveryPersistenceIT {
                                                 round,
                                                 run,
                                                 id(),
-                                                4,
+                                                17,
                                                 "java-boot",
                                                 "python-boot");
                                         return null;
@@ -866,7 +903,7 @@ class DiscoveryPersistenceIT {
                         tx.write(
                                 () -> {
                                     sessions.lockActive(scope);
-                                    discovery.lockRuntime();
+                                    tx.writeExclusive(() -> null);
                                     return null;
                                 }));
         assertThrows(

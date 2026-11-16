@@ -144,6 +144,47 @@ class LuceneCatalogSearchTest {
     }
 
     @Test
+    void popularityProjectionFollowsSnapshotReplacementAndKeepsUnknownAlbums() throws Exception {
+        Path source = temp.resolve("popularity-source"), index = temp.resolve("popularity-index");
+        var rows = new ArrayList<com.fasterxml.jackson.databind.node.ObjectNode>();
+        for (int i = 1; i <= 3; i++) {
+            var row =
+                    JSON.createObjectNode()
+                            .put("id", new UUID(0, i).toString())
+                            .put("title", "Same Title")
+                            .put("artist", "Same Artist")
+                            .put("year", 2000)
+                            .put("type", "Album");
+            row.putArray("genres");
+            row.putArray("aliases");
+            row.putArray("redirects");
+            rows.add(row);
+        }
+        String digest = writeRows(source, rows);
+        CatalogIndexBuild.build(source, index, digest);
+        String first = new UUID(0, 1).toString(), second = new UUID(0, 2).toString();
+        var snapshot =
+                new java.util.concurrent.atomic.AtomicReference<Map<String, Long>>(
+                        Map.of(first, 10L, second, 100L));
+        try (var search = new LuceneCatalogSearch(index, digest, snapshot::get)) {
+            assertEquals(second, search.search("Same", 0, 10).albums().getFirst().id().toString());
+            snapshot.set(Map.of(first, 200L, second, 0L));
+            assertEquals(first, search.search("Same", 0, 10).albums().getFirst().id().toString());
+            assertEquals(3, search.search("Same", 0, 10).albums().size());
+            try (var executor = java.util.concurrent.Executors.newFixedThreadPool(4)) {
+                var jobs = new ArrayList<java.util.concurrent.Callable<String>>();
+                for (int i = 0; i < 40; i++)
+                    jobs.add(() -> search.search("Same", 0, 1).albums().getFirst().id().toString());
+                for (var answer : executor.invokeAll(jobs)) assertEquals(first, answer.get());
+            }
+            snapshot.set(Map.of());
+            assertEquals(
+                    List.of(new UUID(0, 1), new UUID(0, 2), new UUID(0, 3)),
+                    search.search("Same", 0, 10).albums().stream().map(a -> a.id()).toList());
+        }
+    }
+
+    @Test
     void changedInputAndUnfinishedIndexAreRejectedAndNeverOverwriteExistingData() throws Exception {
         Path source = temp.resolve("source"), index = temp.resolve("index");
         String digest = fixture(source);

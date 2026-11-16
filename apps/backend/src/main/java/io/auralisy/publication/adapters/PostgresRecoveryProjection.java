@@ -33,6 +33,11 @@ public class PostgresRecoveryProjection implements RecoveryProjection {
 
     @Override
     public Optional<String> read(SessionStore.Scope scope) {
+        return readStored(scope).map(value -> live(scope, value));
+    }
+
+    @Override
+    public Optional<String> readStored(SessionStore.Scope scope) {
         return jdbc
                 .query(
                         "SELECT state::text FROM discovery.recovery_projection WHERE session_id=? AND revision=?",
@@ -40,8 +45,7 @@ public class PostgresRecoveryProjection implements RecoveryProjection {
                         scope.sessionId(),
                         scope.revision())
                 .stream()
-                .findFirst()
-                .map(value -> live(scope, value));
+                .findFirst();
     }
 
     @Override
