@@ -144,7 +144,7 @@ public class Recommendations {
                             if (!genreIds.add(n.path("genre_id").asText())) fail("DUPLICATE_INPUT");
                         });
         input.path("disliked_genre_ids").forEach(n -> genreIds.add(n.asText()));
-        if (!genres.nodes(dataset, genreIds).keySet().containsAll(genreIds)) fail("UNKNOWN_GENRE");
+        if (!genres.selectable(dataset, genreIds).containsAll(genreIds)) fail("UNKNOWN_GENRE");
         for (var item : input.path("liked_albums")) {
             UUID id;
             try {
@@ -213,20 +213,34 @@ public class Recommendations {
             Scope scope, String round, String preferences, JsonNode config) {
         var batch = curated.candidates(scope, round, preferences);
         var raw = json(sessions.current(scope.subjectId()).orElseThrow().rawInput());
-        if (!raw.has("audience_min_listeners")) return batch;
+        if (!raw.has("audience_min_listeners") && !raw.has("audience_reach_percent")) return batch;
         var agentPolicy = config.path("settings").path("agent_policy");
         int minimum = agentPolicy.path("audience_min_listeners").asInt();
-        long maximum = agentPolicy.path("audience_max_listeners").asLong(Long.MAX_VALUE);
         var ids = batch.items().stream().map(item -> UUID.fromString(item.id())).toList();
         var counts =
                 audience.audience(config.path("catalog_dataset").asLong(), population(config), ids);
+        var identities =
+                agentPolicy.has("audience_reach_percent")
+                        ? catalog.albums(config.path("catalog_dataset").asLong(), ids)
+                        : Map.<UUID, CatalogQuery.Album>of();
         var accepted = new ArrayList<CuratedRecommendations.Item>();
         var diagnostics =
                 (com.fasterxml.jackson.databind.node.ArrayNode)
                         json(batch.diagnostics()).deepCopy();
         for (var item : batch.items()) {
             var count = counts.get(UUID.fromString(item.id()));
-            if (count != null && count >= minimum && count <= maximum) accepted.add(item);
+            var album = identities.get(UUID.fromString(item.id()));
+            var proof =
+                    agentPolicy.has("audience_reach_percent") && album != null
+                            ? audience.reachProof(
+                                    album.genres().stream()
+                                            .map(CatalogQuery.Genre::genreId)
+                                            .toList(),
+                                    json(preferences),
+                                    agentPolicy)
+                            : null;
+            if (io.auralisy.catalog.api.GenreReach.matches(agentPolicy, count, proof))
+                accepted.add(item);
             else
                 diagnostics
                         .addObject()
@@ -235,9 +249,11 @@ public class Recommendations {
                                 "decision",
                                 count == null
                                         ? "AUDIENCE_UNKNOWN"
-                                        : count < minimum
-                                                ? "AUDIENCE_BELOW_MINIMUM"
-                                                : "AUDIENCE_ABOVE_MAXIMUM");
+                                        : agentPolicy.has("audience_reach_percent")
+                                                ? "AUDIENCE_OUTSIDE_REACH"
+                                                : count < minimum
+                                                        ? "AUDIENCE_BELOW_MINIMUM"
+                                                        : "AUDIENCE_ABOVE_MAXIMUM");
         }
         return new CuratedRecommendations.Batch(batch.revision(), accepted, diagnostics.toString());
     }
@@ -473,6 +489,14 @@ public class Recommendations {
         if (!subjects.validCsrf(token, csrf)) fail("FORBIDDEN");
         var settings = json(policy.snapshot());
         var requestedInput = request.path("input");
+        if (requestedInput.has("audience_reach_percent")) {
+            if (requestedInput.has("audience_min_listeners")
+                    || requestedInput.has("audience_max_listeners")) fail("INVALID_PAYLOAD");
+            var agentPolicy = (ObjectNode) settings.path("agent_policy");
+            agentPolicy.set(
+                    "audience_reach_percent", requestedInput.path("audience_reach_percent"));
+            agentPolicy.put("digest", contentDigest(agentPolicy, "digest"));
+        }
         if (requestedInput.has("audience_min_listeners")) {
             var agentPolicy = (ObjectNode) settings.path("agent_policy");
             agentPolicy.set(
@@ -906,7 +930,13 @@ public class Recommendations {
                                     strings(pref.path("disliked_tags")),
                                     positive);
                     var proposal = parse(body, "RecallProposal");
-                    var bundle = candidates.validate(scopeId("bundle", execution), proposal, ctx);
+                    var bundle =
+                            candidates.validate(
+                                    scopeId("bundle", execution),
+                                    proposal,
+                                    ctx,
+                                    pref,
+                                    start.path("agent_policy"));
                     var map = new HashMap<String, String>();
                     bundle.path("accepted")
                             .forEach(

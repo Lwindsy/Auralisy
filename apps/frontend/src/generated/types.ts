@@ -8,6 +8,37 @@ export type PrimaryGenres = {
   genre_id: string;
   name: string;
 }[];
+export type DiscoveryInput = {
+  /**
+   * @minItems 0
+   * @maxItems 1000
+   */
+  liked_genres: {
+    genre_id: string;
+    strength: "normal" | "special";
+    focused: boolean;
+  }[];
+  /**
+   * @minItems 0
+   * @maxItems 1000
+   */
+  disliked_genre_ids: string[];
+  /**
+   * @minItems 0
+   * @maxItems 10
+   */
+  liked_albums: AlbumChoice[];
+  mode: "familiar" | "explore" | "surprise";
+  request_text: string;
+  language: string;
+  audience_reach_percent?: AudienceReach;
+  audience_min_listeners?: AudienceMinimum;
+  audience_max_listeners?: AudienceMaximum;
+};
+/**
+ * Genre-relative logarithmic reach target; effective inclusive bounds are fixed by the deployed genre reach index.
+ */
+export type AudienceReach = number;
 export type AudienceMinimum = number;
 export type AudienceMaximum = number;
 export type RunStatus =
@@ -147,32 +178,6 @@ export interface TextSpan {
   start: number;
   end: number;
 }
-export interface DiscoveryInput {
-  /**
-   * @minItems 0
-   * @maxItems 1000
-   */
-  liked_genres: {
-    genre_id: string;
-    strength: "normal" | "special";
-    focused: boolean;
-  }[];
-  /**
-   * @minItems 0
-   * @maxItems 1000
-   */
-  disliked_genre_ids: string[];
-  /**
-   * @minItems 0
-   * @maxItems 10
-   */
-  liked_albums: AlbumChoice[];
-  mode: "familiar" | "explore" | "surprise";
-  request_text: string;
-  language: string;
-  audience_min_listeners?: AudienceMinimum;
-  audience_max_listeners?: AudienceMaximum;
-}
 export interface AlbumChoice {
   mb_release_group_id: string;
   strength: "normal" | "special";
@@ -212,6 +217,10 @@ export interface GenreNode {
    */
   parent_ids: string[];
   has_children: boolean;
+  /**
+   * Whether this genre subtree has associated albums. Empty subtrees are omitted from the directory.
+   */
+  selectable?: boolean;
 }
 export interface LongReviewView {
   candidate_id: string;

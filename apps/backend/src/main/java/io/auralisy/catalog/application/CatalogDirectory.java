@@ -51,7 +51,7 @@ public final class CatalogDirectory {
             for (var candidate : found.albums())
                 if (!local.containsKey(candidate.id()))
                     for (var g : candidate.genres()) genreIds.add(g.genreId());
-            var admitted = genres.nodes(version, genreIds);
+            var admitted = genres.nodes(version, genres.selectable(version, genreIds));
             for (int i = 0; i < found.albums().size(); i++) {
                 var candidate = found.albums().get(i);
                 var core = local.get(candidate.id());
@@ -83,7 +83,8 @@ public final class CatalogDirectory {
         var core = catalog.albums(version, List.of(external.id())).get(external.id());
         var genreIds = new HashSet<String>();
         for (var g : external.genres()) genreIds.add(g.genreId());
-        var value = album(external, core, genres.nodes(version, genreIds));
+        var value =
+                album(external, core, genres.nodes(version, genres.selectable(version, genreIds)));
         var input = JSON.createObjectNode().put("strength", "normal").put("focused", false);
         if (core != null) input.put("release_group_id", core.id().toString()).putNull("external");
         else {
@@ -121,12 +122,19 @@ public final class CatalogDirectory {
                         .put("offset", offset)
                         .put("limit", limit);
         var items = result.putArray("items");
+        var selectable =
+                genres.selectable(
+                        version,
+                        nodes.stream()
+                                .map(GenreQuery.Node::id)
+                                .collect(java.util.stream.Collectors.toSet()));
         for (var n : nodes) {
             var item =
                     items.addObject()
                             .put("genre_id", n.id())
                             .put("name", n.name())
-                            .put("has_children", n.hasChildren());
+                            .put("has_children", n.hasChildren())
+                            .put("selectable", selectable.contains(n.id()));
             var parents = item.putArray("parent_ids");
             n.parents().stream().sorted().forEach(parents::add);
         }

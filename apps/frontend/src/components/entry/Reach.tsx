@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type CSSProperties } from "react";
 import { useCopy } from "../../i18n/index.ts";
-import { reachToListeners } from "../../state/draft.ts";
+import { reachBounds } from "../../state/draft.ts";
 import { Icon } from "../Icon.tsx";
 
 /** Three bands of the scale; what each means is shown only while the slider is moved. */
@@ -13,7 +13,7 @@ const ZONES = [
 const zoneOf = (value: number) => (value <= 40 ? 0 : value <= 70 ? 1 : 2);
 
 /**
- * 传播度 maps the slider to an inclusive range of sample listeners. A thin rail with a
+ * 传播度 maps the slider to an inclusive range of genre-relative reach. A thin rail with a
  * filled run and two marks at 40% and 70%. While the thumb is being moved the three bands
  * fold out underneath, the current one lit; they fold away shortly after letting go.
  * The current band is named beside the value, and an info mark explains what the scale
@@ -43,7 +43,7 @@ export function Reach({
     timer.current = setTimeout(() => setActive(false), delay);
   };
   const zone = zoneOf(value);
-  const { min, max } = reachToListeners(value);
+  const { min, max } = reachBounds(value);
   return (
     <div
       className="reach"
@@ -90,11 +90,7 @@ export function Reach({
           step={1}
           value={value}
           disabled={disabled}
-          aria-valuetext={
-            max === undefined
-              ? words.atLeast(value, min)
-              : words.between(value, min, max)
-          }
+          aria-valuetext={words.between(value, min, max)}
           onChange={(event) => onChange(Number(event.target.value))}
           onPointerDown={show}
           onPointerUp={() => hideSoon(700)}

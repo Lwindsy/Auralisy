@@ -57,6 +57,17 @@ public final class CandidateValidation {
     }
 
     public ObjectNode validate(String bundleId, JsonNode proposal, Context context) {
+        return validate(
+                bundleId, proposal, context, JSON.createObjectNode(), JSON.createObjectNode());
+    }
+
+    public ObjectNode validate(
+            String bundleId,
+            JsonNode proposal,
+            Context context,
+            JsonNode preferences,
+            JsonNode policy) {
+        boolean relative = policy.has("audience_reach_percent");
         require("RecallProposal", proposal);
         require("RecallBinding", context.recallBinding());
         if (!contentDigest(proposal, "proposal_digest")
@@ -101,6 +112,7 @@ public final class CandidateValidation {
                 identities.values().stream().map(CatalogQuery.Album::id).distinct().toList();
         var counts =
                 audience.audience(context.catalogDataset(), context.audienceBinding(), canonical);
+
         var roots = new HashSet<>(context.forbiddenGenres());
         roots.addAll(context.dislikedGenres());
         roots.addAll(context.requiredGenres());
@@ -123,6 +135,15 @@ public final class CandidateValidation {
             } catch (IllegalArgumentException ignored) {
             }
             String reason = null;
+            JsonNode reachProof =
+                    relative && album != null
+                            ? audience.reachProof(
+                                    album.genres().stream()
+                                            .map(CatalogQuery.Genre::genreId)
+                                            .toList(),
+                                    preferences,
+                                    policy)
+                            : null;
             if (album == null || album.artistCredit() == null || album.artistCredit().isBlank())
                 reason = "UNKNOWN_IDENTITY";
             else if (excluded.contains(album.id())) reason = "EXCLUDED";
@@ -137,9 +158,12 @@ public final class CandidateValidation {
                         || (!genres.isEmpty() && disliked.containsAll(genres)))
                     reason = "HARD_CONSTRAINT";
                 else if (!counts.containsKey(album.id())) reason = "AUDIENCE_UNKNOWN";
-                else if (counts.get(album.id()) < context.audienceMinimum())
+                else if (relative
+                        && !GenreReach.matches(policy, counts.get(album.id()), reachProof))
+                    reason = "AUDIENCE_OUTSIDE_REACH";
+                else if (!relative && counts.get(album.id()) < context.audienceMinimum())
                     reason = "AUDIENCE_BELOW_MINIMUM";
-                else if (counts.get(album.id()) > context.audienceMaximum())
+                else if (!relative && counts.get(album.id()) > context.audienceMaximum())
                     reason = "AUDIENCE_ABOVE_MAXIMUM";
             }
             if (reason != null) {
@@ -171,6 +195,7 @@ public final class CandidateValidation {
                     .put("window", b.window())
                     .put("sample_listeners", b.sampleListeners())
                     .put("listeners", counts.get(album.id()));
+            if (relative) ((ObjectNode) out.path("audience")).set("reach", reachProof);
         }
         String hash = digest(accepted);
         var result =

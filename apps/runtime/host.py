@@ -349,10 +349,30 @@ class Host:
                 "RESTORE_SECRET_MISMATCH",
             )
 
+    def prepare_reach(self):
+        output = self.path.parent / "genre-reach.json"
+        self.call(
+            [
+                self.file("python"),
+                "-m",
+                "auralisy_intelligence.recall.prepare_reach",
+                "--config",
+                self.file("agent_config"),
+                "--output",
+                str(output),
+                "--replace",
+            ],
+            env=self.agent_environment(),
+        )
+        return output
+
     def agent_environment(self):
         env = environment(("AURALIS_SERVICE_TOKEN", "AURALIS_PRODUCT_TEST_API_KEY"))
         env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1] / "intelligence" / "src")
         env.update(OPENBLAS_NUM_THREADS="1", OMP_NUM_THREADS="1", MKL_NUM_THREADS="1")
+        reach = self.path.parent / "genre-reach.json"
+        if reach.exists():
+            env["AURALIS_GENRE_REACH_INDEX"] = str(reach)
         return env
 
     def status(self):
@@ -371,6 +391,7 @@ class Host:
 
     def run(self, managed_stdin=False):
         self.preflight()
+        reach = self.prepare_reach()
         c = self.config
         backend = environment(SECRETS)
         backend.update(
@@ -384,6 +405,7 @@ class Host:
             AURALIS_DISPATCH_ENABLED="true",
             AURALIS_RECOMMENDATION_CONFIG=self.file("recommendation_config"),
             AURALIS_GENRE_TAXONOMY=self.file("genre_taxonomy"),
+            AURALIS_GENRE_REACH_INDEX=str(reach),
             AURALIS_CATALOG_SEARCH_INDEX=str(self.search_index()),
             AURALIS_CATALOG_SEARCH_MANIFEST_SHA256=c["search_manifest_sha256"],
             SERVER_PORT=str(c["java_port"]),

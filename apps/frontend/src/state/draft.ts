@@ -2,28 +2,9 @@ import type { DiscoveryInput } from "../api/types.ts";
 
 export const REACH_DEFAULT = 10;
 
-/** Inclusive ListenBrainz sample bounds for an integer slider percentage. */
-export function reachToListeners(reach: number): { min: number; max?: number } {
-  if (reach <= 40) {
-    const offset = Math.ceil(reach * 2.5);
-    return { min: offset, max: 100 + offset };
-  }
-  if (reach <= 70) return { min: 100 + reach * 3, max: 150 + reach * 3 };
-  return { min: 300 + reach * 2 };
-}
-
-/** Restore the slider from its lower bound, including older lower-only inputs. */
-export function listenersToReach(listeners: number) {
-  let nearest = 0;
-  for (let reach = 1; reach <= 100; reach++) {
-    if (
-      Math.abs(reachToListeners(reach).min - listeners) <
-      Math.abs(reachToListeners(nearest).min - listeners)
-    ) {
-      nearest = reach;
-    }
-  }
-  return nearest;
+/** Nominal genre-relative reach range; deployed bands may expand for candidate supply. */
+export function reachBounds(reach: number): { min: number; max: number } {
+  return { min: Math.max(0, reach - 10), max: Math.min(100, reach + 10) };
 }
 
 /** Unsubmitted input on the entry page, with 传播度 kept as the slider's percentage. */
@@ -57,8 +38,5 @@ export class DraftStore {
 
 export const draftFrom = (input: DiscoveryInput): EntryDraft => ({
   input: structuredClone(input),
-  reach:
-    input.audience_min_listeners === undefined
-      ? REACH_DEFAULT
-      : listenersToReach(input.audience_min_listeners),
+  reach: input.audience_reach_percent ?? REACH_DEFAULT,
 });

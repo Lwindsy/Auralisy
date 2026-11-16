@@ -82,13 +82,15 @@ const en: Copy = {
   },
   reach: {
     label: "Reach",
-    zones: ["Fewer listeners", "Mid-sized audience", "More listeners"],
+    zones: [
+      "Hidden within its genre",
+      "Mid-range within its genre",
+      "Popular within its genre",
+    ],
     about: "About reach",
-    info: "Based on listener counts, not global popularity",
+    info: "Listener reach relative to the reference genre. Higher means more widely heard; sparse genres follow your preferences.",
     between: (value: number, min: number, max: number) =>
-      `${value}%, ${min}–${max} listeners`,
-    atLeast: (value: number, listeners: number) =>
-      `${value}%, at least ${listeners} listeners`,
+      `${value}%, genre-relative reach ${min}–${max}%`,
   },
   genres: {
     search: "Find a genre",

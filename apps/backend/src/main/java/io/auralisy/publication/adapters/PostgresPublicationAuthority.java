@@ -361,11 +361,25 @@ public class PostgresPublicationAuthority implements PublicationAuthority {
                         g -> genres.addObject().put("genre_id", g.genreId()).put("name", g.name()));
         var a = candidate.path("audience");
         var policy = json(c.policy());
+        JsonNode proof = null;
+        if (policy.has("audience_reach_percent")) {
+            var pref =
+                    json(
+                            preferences
+                                    .find(
+                                            c.execution().evidence().scope(),
+                                            c.preferenceResolution())
+                                    .orElseThrow());
+            proof =
+                    audience.reachProof(
+                            album.genres().stream().map(CatalogQuery.Genre::genreId).toList(),
+                            pref,
+                            policy);
+        }
         return same(identity, candidate.path("identity"))
-                && listeners != null
-                && policy.has("audience_min_listeners")
-                && listeners >= policy.path("audience_min_listeners").asInt()
-                && listeners <= policy.path("audience_max_listeners").asLong(Long.MAX_VALUE)
+                && io.auralisy.catalog.api.GenreReach.matches(policy, listeners, proof)
+                && (!policy.has("audience_reach_percent")
+                        || proof != null && same(a.path("reach"), proof))
                 && a.path("listeners").asLong() == listeners
                 && a.path("dataset_id").asText().equals(c.audience().dataset())
                 && a.path("window").asText().equals(c.audience().window())

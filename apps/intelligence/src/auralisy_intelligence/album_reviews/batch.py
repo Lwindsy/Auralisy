@@ -7,6 +7,7 @@ from auralisy_intelligence.contracts import ContractError
 from auralisy_intelligence.preferences.schemas import array, object_schema
 from auralisy_intelligence.ranking import SelectionResult, SelectStage
 from auralisy_intelligence.recall.full_audience import matches_policy
+from auralisy_intelligence.recall.genre_reach import within_policy
 
 from .context import preference_context
 from .prompts_en import BATCH_REPAIR
@@ -157,7 +158,7 @@ class BatchResearchStage:
                 c
                 for c in candidates
                 if matches_policy(c.get("audience"), policy)
-                and minimum <= c["audience"]["listeners"] <= maximum
+                and within_policy(c["audience"], policy)
             ]
             searchable = self._research_window(eligible_sources, preferences)
             await self.evidence.prepare(execution, searchable, self.tools)
@@ -178,9 +179,11 @@ class BatchResearchStage:
                 )
             if not matches_policy(audience, policy):
                 reason = "AUDIENCE_UNKNOWN"
-            elif audience["listeners"] < minimum:
+            elif "audience_reach_percent" in policy and not within_policy(audience, policy):
+                reason = "AUDIENCE_OUTSIDE_REACH"
+            elif "audience_reach_percent" not in policy and audience["listeners"] < minimum:
                 reason = "AUDIENCE_BELOW_MINIMUM"
-            elif audience["listeners"] > maximum:
+            elif "audience_reach_percent" not in policy and audience["listeners"] > maximum:
                 reason = "AUDIENCE_ABOVE_MAXIMUM"
             else:
                 audience_passed += 1

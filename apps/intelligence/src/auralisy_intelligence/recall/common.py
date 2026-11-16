@@ -250,7 +250,9 @@ def effective_disliked(
     return result
 
 
-def recall(model: RecallModel, request: RecallRequest, *, eligibility_mask=None) -> RecallResult:
+def recall(
+    model: RecallModel, request: RecallRequest, *, eligibility_mask=None, fallback_scores=None
+) -> RecallResult:
     """Call the actual provider, filter the full candidate pool, then select R."""
     data = getattr(model, "data", None)
     if data is None:
@@ -274,6 +276,12 @@ def recall(model: RecallModel, request: RecallRequest, *, eligibility_mask=None)
         or np.isposinf(scores).any()
     ):
         raise ValueError("provider must return one finite or -inf score per album")
+    if fallback_scores is not None:
+        extra = np.flatnonzero((fallback_scores > 0) & ~np.isfinite(scores))
+        extra = sorted(extra, key=lambda i: (-fallback_scores[i], data.album_ids[i]))
+        base = float(scores[np.isfinite(scores)].min()) if np.isfinite(scores).any() else 1.0
+        for rank, index in enumerate(extra, 1):
+            scores[index] = base / (rank + 1)
     disliked = effective_disliked(data, request.disliked_tags, request.disliked_exceptions)
     forbidden = _descendants(data, request.forbidden_tags)
     required = [_descendants(data, (tag,)) for tag in request.required_tags]

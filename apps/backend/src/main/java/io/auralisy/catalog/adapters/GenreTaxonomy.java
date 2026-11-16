@@ -16,11 +16,17 @@ import org.springframework.stereotype.Component;
 public final class GenreTaxonomy {
     private final Map<String, GenreQuery.Node> nodes;
     private final String manifest;
+    private String digest;
 
     @org.springframework.beans.factory.annotation.Autowired
-    public GenreTaxonomy(@Value("${AURALIS_GENRE_TAXONOMY:}") String path)
-            throws java.io.IOException {
+    public GenreTaxonomy(@Value("${AURALIS_GENRE_TAXONOMY:}") String path) throws Exception {
         this(path.isBlank() ? null : JSON.readTree(Files.readAllBytes(Path.of(path))));
+        if (!path.isBlank())
+            digest =
+                    java.util.HexFormat.of()
+                            .formatHex(
+                                    java.security.MessageDigest.getInstance("SHA-256")
+                                            .digest(Files.readAllBytes(Path.of(path))));
     }
 
     public GenreTaxonomy(JsonNode document) throws java.io.IOException {
@@ -75,6 +81,10 @@ public final class GenreTaxonomy {
         for (String parent : nodes.get(id).parents()) visit(parent, nodes, visited, active);
         active.remove(id);
         visited.add(id);
+    }
+
+    public String digest() {
+        return digest;
     }
 
     public String manifest() {

@@ -9,15 +9,30 @@ import org.springframework.stereotype.Repository;
 public class PostgresGenreQuery implements GenreQuery {
     private final PostgresCatalogQuery catalog;
     private final GenreTaxonomy taxonomy;
+    private final GenreReachIndex reach;
 
     public PostgresGenreQuery(PostgresCatalogQuery catalog, GenreTaxonomy taxonomy) {
+        this(catalog, taxonomy, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public PostgresGenreQuery(
+            PostgresCatalogQuery catalog, GenreTaxonomy taxonomy, GenreReachIndex reach) {
         this.catalog = catalog;
         this.taxonomy = taxonomy;
+        this.reach = reach;
     }
 
     public Map<String, Node> warm(long dataset) {
         catalog.requireActive(dataset);
         return taxonomy.nodes();
+    }
+
+    @Override
+    public Set<String> selectable(long dataset, Set<String> ids) {
+        var result = new HashSet<>(nodes(dataset, ids).keySet());
+        if (reach != null) result.removeIf(id -> !reach.selectable(id));
+        return Set.copyOf(result);
     }
 
     @Override
@@ -33,6 +48,12 @@ public class PostgresGenreQuery implements GenreQuery {
         return nodes.values().stream()
                 .filter(
                         n ->
+                                reach == null
+                                        || (q.isEmpty()
+                                                ? reach.visible(n.id())
+                                                : reach.selectable(n.id())))
+                .filter(
+                        n ->
                                 q.isEmpty()
                                         ? (parent == null
                                                 ? n.parents().isEmpty()
@@ -43,6 +64,22 @@ public class PostgresGenreQuery implements GenreQuery {
                                                                 a ->
                                                                         a.toLowerCase(Locale.ROOT)
                                                                                 .contains(q)))
+                .map(
+                        n ->
+                                new Node(
+                                        n.id(),
+                                        n.name(),
+                                        n.aliases(),
+                                        n.parents(),
+                                        nodes.values().stream()
+                                                .anyMatch(
+                                                        child ->
+                                                                child.parents().contains(n.id())
+                                                                        && (reach == null
+                                                                                || reach.visible(
+                                                                                        child
+                                                                                                .id()))),
+                                        n.annotation()))
                 .sorted(Comparator.comparing(Node::name).thenComparing(Node::id))
                 .skip(offset)
                 .limit(limit)

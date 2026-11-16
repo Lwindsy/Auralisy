@@ -1,0 +1,2639 @@
+{
+  "format_version": 2,
+  "algorithm": "genre-reach.v2",
+  "catalog_dataset_id": 1,
+  "source_manifest_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "taxonomy_sha256": "606ce142d5f75dbfbaec063a58802e08adbaf721d3fd4fd3e61b61c5c499288e",
+  "recall_snapshot_id": "reach-fixture",
+  "recall_fingerprint": "e0501b0d14ecdd4b56e0ee5005b65f571b9a7fd578e65fe8e50452fb7744a5dc",
+  "audience_binding": {
+    "dataset_id": "core:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "window": "0",
+    "sample_listeners": 1000,
+    "snapshot_digest": "sha256:beabfc65a76fe691ea3beee1b4cc3c6affee81965405f28e8f88f8b05504996b"
+  },
+  "minimum_candidates": 10,
+  "genres": [
+    {
+      "genre_id": "bridge",
+      "mode": "NORMAL",
+      "direct_album_count": 0,
+      "pool_album_count": 21,
+      "positive_album_count": 21,
+      "lower": 20,
+      "head": 200.0,
+      "bands": [
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 40,
+          "maximum": 130,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 40,
+          "maximum": 130,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 40,
+          "maximum": 130,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 40,
+          "maximum": 130,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 40,
+          "maximum": 130,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 40,
+          "maximum": 130,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 40,
+          "maximum": 130,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 40,
+          "maximum": 130,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 50,
+          "maximum": 140,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 50,
+          "maximum": 140,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 50,
+          "maximum": 140,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 50,
+          "maximum": 140,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 50,
+          "maximum": 140,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 50,
+          "maximum": 140,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 60,
+          "maximum": 150,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 60,
+          "maximum": 150,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 60,
+          "maximum": 150,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 60,
+          "maximum": 150,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 60,
+          "maximum": 150,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 60,
+          "maximum": 150,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 70,
+          "maximum": 160,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 70,
+          "maximum": 160,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 70,
+          "maximum": 160,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 70,
+          "maximum": 160,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 80,
+          "maximum": 170,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 80,
+          "maximum": 170,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 80,
+          "maximum": 170,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 80,
+          "maximum": 170,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 90,
+          "maximum": 180,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 90,
+          "maximum": 180,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 90,
+          "maximum": 180,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 90,
+          "maximum": 180,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 100,
+          "maximum": 190,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 100,
+          "maximum": 190,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 100,
+          "maximum": 190,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 110,
+          "maximum": 200,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 110,
+          "maximum": 200,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 110,
+          "maximum": 200,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 110,
+          "maximum": 200,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": 210,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        }
+      ]
+    },
+    {
+      "genre_id": "empty",
+      "mode": "HIDDEN",
+      "direct_album_count": 0,
+      "pool_album_count": 0,
+      "positive_album_count": 0,
+      "lower": null,
+      "head": null,
+      "bands": []
+    },
+    {
+      "genre_id": "flat",
+      "mode": "DIRECT",
+      "direct_album_count": 3,
+      "pool_album_count": 3,
+      "positive_album_count": 3,
+      "lower": null,
+      "head": null,
+      "bands": []
+    },
+    {
+      "genre_id": "jazz",
+      "mode": "NORMAL",
+      "direct_album_count": 21,
+      "pool_album_count": 21,
+      "positive_album_count": 21,
+      "lower": 20,
+      "head": 200.0,
+      "bands": [
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 40,
+          "maximum": 130,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 40,
+          "maximum": 130,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 40,
+          "maximum": 130,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 40,
+          "maximum": 130,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 40,
+          "maximum": 130,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 40,
+          "maximum": 130,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 40,
+          "maximum": 130,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 40,
+          "maximum": 130,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 50,
+          "maximum": 140,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 50,
+          "maximum": 140,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 50,
+          "maximum": 140,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 50,
+          "maximum": 140,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 50,
+          "maximum": 140,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 50,
+          "maximum": 140,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 60,
+          "maximum": 150,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 60,
+          "maximum": 150,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 60,
+          "maximum": 150,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 60,
+          "maximum": 150,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 60,
+          "maximum": 150,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 60,
+          "maximum": 150,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 70,
+          "maximum": 160,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 70,
+          "maximum": 160,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 70,
+          "maximum": 160,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 70,
+          "maximum": 160,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 80,
+          "maximum": 170,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 80,
+          "maximum": 170,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 80,
+          "maximum": 170,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 80,
+          "maximum": 170,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 90,
+          "maximum": 180,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 90,
+          "maximum": 180,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 90,
+          "maximum": 180,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 90,
+          "maximum": 180,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 100,
+          "maximum": 190,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 100,
+          "maximum": 190,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 100,
+          "maximum": 190,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 110,
+          "maximum": 200,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 110,
+          "maximum": 200,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 110,
+          "maximum": 200,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 110,
+          "maximum": 200,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": 210,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        }
+      ]
+    },
+    {
+      "genre_id": "navigation",
+      "mode": "NORMAL",
+      "direct_album_count": 0,
+      "pool_album_count": 21,
+      "positive_album_count": 21,
+      "lower": 20,
+      "head": 200.0,
+      "bands": [
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 40,
+          "maximum": 130,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 40,
+          "maximum": 130,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 40,
+          "maximum": 130,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 40,
+          "maximum": 130,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 40,
+          "maximum": 130,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 40,
+          "maximum": 130,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 40,
+          "maximum": 130,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 40,
+          "maximum": 130,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 50,
+          "maximum": 140,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 50,
+          "maximum": 140,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 50,
+          "maximum": 140,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 50,
+          "maximum": 140,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 50,
+          "maximum": 140,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 50,
+          "maximum": 140,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 60,
+          "maximum": 150,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 60,
+          "maximum": 150,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 60,
+          "maximum": 150,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 60,
+          "maximum": 150,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 60,
+          "maximum": 150,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 60,
+          "maximum": 150,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 70,
+          "maximum": 160,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 70,
+          "maximum": 160,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 70,
+          "maximum": 160,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 70,
+          "maximum": 160,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 80,
+          "maximum": 170,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 80,
+          "maximum": 170,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 80,
+          "maximum": 170,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 80,
+          "maximum": 170,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 90,
+          "maximum": 180,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 90,
+          "maximum": 180,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 90,
+          "maximum": 180,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 90,
+          "maximum": 180,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 100,
+          "maximum": 190,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 100,
+          "maximum": 190,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 100,
+          "maximum": 190,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 110,
+          "maximum": 200,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 110,
+          "maximum": 200,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 110,
+          "maximum": 200,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 110,
+          "maximum": 200,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": 210,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        }
+      ]
+    },
+    {
+      "genre_id": "post-rock",
+      "mode": "NORMAL",
+      "direct_album_count": 21,
+      "pool_album_count": 21,
+      "positive_album_count": 21,
+      "lower": 20,
+      "head": 200.0,
+      "bands": [
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 40,
+          "maximum": 130,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 40,
+          "maximum": 130,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 40,
+          "maximum": 130,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 40,
+          "maximum": 130,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 40,
+          "maximum": 130,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 40,
+          "maximum": 130,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 40,
+          "maximum": 130,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 40,
+          "maximum": 130,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 50,
+          "maximum": 140,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 50,
+          "maximum": 140,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 50,
+          "maximum": 140,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 50,
+          "maximum": 140,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 50,
+          "maximum": 140,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 50,
+          "maximum": 140,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 60,
+          "maximum": 150,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 60,
+          "maximum": 150,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 60,
+          "maximum": 150,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 60,
+          "maximum": 150,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 60,
+          "maximum": 150,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 60,
+          "maximum": 150,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 70,
+          "maximum": 160,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 70,
+          "maximum": 160,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 70,
+          "maximum": 160,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 70,
+          "maximum": 160,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 80,
+          "maximum": 170,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 80,
+          "maximum": 170,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 80,
+          "maximum": 170,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 80,
+          "maximum": 170,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 90,
+          "maximum": 180,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 90,
+          "maximum": 180,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 90,
+          "maximum": 180,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 90,
+          "maximum": 180,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 100,
+          "maximum": 190,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 100,
+          "maximum": 190,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 100,
+          "maximum": 190,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 110,
+          "maximum": 200,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 110,
+          "maximum": 200,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 110,
+          "maximum": 200,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 110,
+          "maximum": 200,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": 210,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        }
+      ]
+    },
+    {
+      "genre_id": "rock",
+      "mode": "NORMAL",
+      "direct_album_count": 21,
+      "pool_album_count": 21,
+      "positive_album_count": 21,
+      "lower": 20,
+      "head": 200.0,
+      "bands": [
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 20,
+          "maximum": 110,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 30,
+          "maximum": 120,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 40,
+          "maximum": 130,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 40,
+          "maximum": 130,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 40,
+          "maximum": 130,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 40,
+          "maximum": 130,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 40,
+          "maximum": 130,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 40,
+          "maximum": 130,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 40,
+          "maximum": 130,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 40,
+          "maximum": 130,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 50,
+          "maximum": 140,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 50,
+          "maximum": 140,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 50,
+          "maximum": 140,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 50,
+          "maximum": 140,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 50,
+          "maximum": 140,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 50,
+          "maximum": 140,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 60,
+          "maximum": 150,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 60,
+          "maximum": 150,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 60,
+          "maximum": 150,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 60,
+          "maximum": 150,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 60,
+          "maximum": 150,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 60,
+          "maximum": 150,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 70,
+          "maximum": 160,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 70,
+          "maximum": 160,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 70,
+          "maximum": 160,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 70,
+          "maximum": 160,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 80,
+          "maximum": 170,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 80,
+          "maximum": 170,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 80,
+          "maximum": 170,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 80,
+          "maximum": 170,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 90,
+          "maximum": 180,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 90,
+          "maximum": 180,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 90,
+          "maximum": 180,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 90,
+          "maximum": 180,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 100,
+          "maximum": 190,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 100,
+          "maximum": 190,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 100,
+          "maximum": 190,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 110,
+          "maximum": 200,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 110,
+          "maximum": 200,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 110,
+          "maximum": 200,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 110,
+          "maximum": 200,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": 210,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        },
+        {
+          "minimum": 120,
+          "maximum": null,
+          "candidate_count": 10
+        }
+      ]
+    },
+    {
+      "genre_id": "sparse",
+      "mode": "DIRECT",
+      "direct_album_count": 2,
+      "pool_album_count": 2,
+      "positive_album_count": 2,
+      "lower": null,
+      "head": null,
+      "bands": []
+    },
+    {
+      "genre_id": "zero",
+      "mode": "DIRECT",
+      "direct_album_count": 2,
+      "pool_album_count": 2,
+      "positive_album_count": 0,
+      "lower": null,
+      "head": null,
+      "bands": []
+    }
+  ],
+  "digest": "sha256:3c38a1927f833ea018d335979ee2e0c92c62f5b8be25664b74b4816e026001b4"
+}

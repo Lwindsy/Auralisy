@@ -158,6 +158,12 @@ public final class StoredPreferenceAuthority implements PreferenceAuthority {
             if (row.path("release_group_id").isNull())
                 row.path("external").path("mapped_genre_ids").forEach(g -> ids.add(g.asText()));
         }
+        var proposedGenres = new HashSet<String>();
+        for (String key : List.of("preferences", "constraints"))
+            proposal.path(key).forEach(row -> proposedGenres.add(row.path("id").asText()));
+        if (!genres.selectable(context.catalogDataset(), proposedGenres)
+                .containsAll(proposedGenres))
+            throw new PreferenceRejected("INPUT_DESCRIPTION_UNAVAILABLE");
         var nodes = genres.nodes(context.catalogDataset(), ids);
         if (!nodes.keySet().containsAll(ids) || !context.genreNames().keySet().containsAll(ids))
             throw new PreferenceRejected("INPUT_DESCRIPTION_UNAVAILABLE");

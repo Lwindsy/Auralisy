@@ -39,6 +39,8 @@ async def demo(args):
 def serve(args):
     config_path = Path(args.config).resolve()
     config = json.loads(config_path.read_text(encoding="utf-8"))
+    if os.environ.get("AURALIS_GENRE_REACH_INDEX"):
+        config["genre_reach_index"] = os.environ["AURALIS_GENRE_REACH_INDEX"]
 
     def relative(name):
         return (config_path.parent / config[name]).resolve()
@@ -98,9 +100,21 @@ def serve(args):
         FullAudience(relative("audience_snapshot"), config["audience_binding"])
     )
     engine.audience([])
+    if config.get("genre_reach_index"):
+        from auralisy_intelligence.recall.genre_reach import ReachIndex
+
+        reach_index = ReachIndex.load(relative("genre_reach_index"), relative("genre_taxonomy"))
+        engine.bind_reach_index(reach_index)
+        reference.available_ids = reach_index.selectable
     long_tools = ToolGateway(search_adapter=adapter, model_gateway=model)
 
     def factory(start):
+        if "audience_reach_percent" in start["agent_policy"]:
+            if (
+                not config.get("genre_reach_index")
+                or start["agent_policy"].get("audience_reach_index_digest") != reach_index.digest
+            ):
+                raise ValueError("REACH_INDEX_MISMATCH")
         if "audience_min_listeners" not in start["agent_policy"]:
             raise ValueError("AUDIENCE_POLICY_REQUIRED")
         from auralisy_intelligence.album_reviews.seed_context import SeedContext, SeededPipeline
@@ -138,6 +152,7 @@ def serve(args):
                 engine=engine,
                 min_listeners=start["agent_policy"]["audience_min_listeners"],
                 max_listeners=start["agent_policy"].get("audience_max_listeners"),
+                reach_percent=start["agent_policy"].get("audience_reach_percent"),
             ),
             research,
             writing,

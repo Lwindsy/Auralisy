@@ -255,6 +255,9 @@
           "type": "string",
           "pattern": "^sha256:[0-9a-f]{64}$"
         },
+        "audience_reach_percent": {
+          "$ref": "#/$defs/AudienceReach"
+        },
         "audience_min_listeners": {
           "$ref": "#/$defs/AudienceMinimum"
         },
@@ -271,7 +274,25 @@
         "language",
         "input_digest"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "not": {
+            "required": [
+              "audience_reach_percent",
+              "audience_min_listeners"
+            ]
+          }
+        },
+        {
+          "not": {
+            "required": [
+              "audience_reach_percent",
+              "audience_max_listeners"
+            ]
+          }
+        }
+      ]
     },
     "TextSpan": {
       "type": "object",
@@ -2013,6 +2034,9 @@
           ],
           "additionalProperties": false
         },
+        "audience_reach_percent": {
+          "$ref": "#/$defs/AudienceReach"
+        },
         "audience_min_listeners": {
           "$ref": "#/$defs/AudienceMinimum"
         },
@@ -2021,6 +2045,10 @@
         },
         "audience_binding": {
           "$ref": "#/$defs/AudienceBinding"
+        },
+        "audience_reach_index_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
         }
       },
       "required": [
@@ -2035,6 +2063,10 @@
       ],
       "additionalProperties": false,
       "dependentRequired": {
+        "audience_reach_percent": [
+          "audience_binding",
+          "audience_reach_index_digest"
+        ],
         "audience_min_listeners": [
           "audience_binding"
         ],
@@ -2049,10 +2081,19 @@
         "progressive_tail": {
           "type": "object",
           "properties": {
-            "candidate_id": {"$ref": "#/$defs/CardProposal/properties/candidate_id"},
-            "run_id": {"type": "string", "minLength": 1, "maxLength": 160}
+            "candidate_id": {
+              "$ref": "#/$defs/CardProposal/properties/candidate_id"
+            },
+            "run_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160
+            }
           },
-          "required": ["candidate_id", "run_id"],
+          "required": [
+            "candidate_id",
+            "run_id"
+          ],
           "additionalProperties": false
         },
         "display_seq": {
@@ -2233,6 +2274,7 @@
             "READ_FAILED",
             "AUDIENCE_BELOW_MINIMUM",
             "AUDIENCE_ABOVE_MAXIMUM",
+            "AUDIENCE_OUTSIDE_REACH",
             "AUDIENCE_UNKNOWN",
             "EVIDENCE_NOT_PREPARED",
             "DEFERRED"
@@ -6377,6 +6419,9 @@
           "minLength": 1,
           "maxLength": 32
         },
+        "audience_reach_percent": {
+          "$ref": "#/$defs/AudienceReach"
+        },
         "audience_min_listeners": {
           "$ref": "#/$defs/AudienceMinimum"
         },
@@ -6394,8 +6439,28 @@
       ],
       "additionalProperties": false,
       "dependentRequired": {
-        "audience_max_listeners": ["audience_min_listeners"]
-      }
+        "audience_max_listeners": [
+          "audience_min_listeners"
+        ]
+      },
+      "allOf": [
+        {
+          "not": {
+            "required": [
+              "audience_reach_percent",
+              "audience_min_listeners"
+            ]
+          }
+        },
+        {
+          "not": {
+            "required": [
+              "audience_reach_percent",
+              "audience_max_listeners"
+            ]
+          }
+        }
+      ]
     },
     "ProductCard": {
       "type": "object",
@@ -7004,6 +7069,9 @@
             "null"
           ],
           "minimum": 0
+        },
+        "reach": {
+          "$ref": "#/$defs/AudienceReachProof"
         }
       },
       "required": [
@@ -7482,6 +7550,10 @@
         },
         "has_children": {
           "type": "boolean"
+        },
+        "selectable": {
+          "type": "boolean",
+          "description": "Whether this genre subtree has associated albums. Empty subtrees are omitted from the directory."
         }
       },
       "required": [
@@ -8037,6 +8109,12 @@
       ],
       "additionalProperties": false
     },
+    "AudienceReach": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100,
+      "description": "Genre-relative logarithmic reach target; effective inclusive bounds are fixed by the deployed genre reach index."
+    },
     "AudienceMinimum": {
       "type": "integer",
       "minimum": 0,
@@ -8047,6 +8125,192 @@
       "type": "integer",
       "minimum": 0,
       "maximum": 2147483647
+    },
+    "GenreReachBand": {
+      "type": "object",
+      "properties": {
+        "minimum": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "maximum": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "candidate_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "minimum",
+        "maximum",
+        "candidate_count"
+      ],
+      "additionalProperties": false
+    },
+    "GenreReachProfile": {
+      "type": "object",
+      "properties": {
+        "genre_id": {
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "HIDDEN",
+            "DIRECT",
+            "NORMAL"
+          ]
+        },
+        "direct_album_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "positive_album_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "lower": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "head": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "bands": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/GenreReachBand"
+          },
+          "maxItems": 101
+        },
+        "pool_album_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Distinct albums tagged with this genre or any descendant."
+        }
+      },
+      "required": [
+        "genre_id",
+        "mode",
+        "direct_album_count",
+        "positive_album_count",
+        "lower",
+        "head",
+        "bands",
+        "pool_album_count"
+      ],
+      "additionalProperties": false
+    },
+    "GenreReachIndex": {
+      "type": "object",
+      "properties": {
+        "format_version": {
+          "const": 2
+        },
+        "algorithm": {
+          "const": "genre-reach.v2"
+        },
+        "catalog_dataset_id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "source_manifest_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "taxonomy_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "recall_snapshot_id": {
+          "type": "string"
+        },
+        "recall_fingerprint": {
+          "type": "string"
+        },
+        "audience_binding": {
+          "$ref": "#/$defs/AudienceBinding"
+        },
+        "minimum_candidates": {
+          "const": 10
+        },
+        "genres": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/GenreReachProfile"
+          }
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "format_version",
+        "algorithm",
+        "catalog_dataset_id",
+        "source_manifest_sha256",
+        "taxonomy_sha256",
+        "recall_snapshot_id",
+        "recall_fingerprint",
+        "audience_binding",
+        "minimum_candidates",
+        "genres",
+        "digest"
+      ],
+      "additionalProperties": false
+    },
+    "AudienceReachProof": {
+      "type": "object",
+      "properties": {
+        "index_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "genre_id": {
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "DIRECT",
+            "NORMAL"
+          ]
+        },
+        "requested_percent": {
+          "$ref": "#/$defs/AudienceReach"
+        },
+        "minimum": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "maximum": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        }
+      },
+      "required": [
+        "index_digest",
+        "genre_id",
+        "mode",
+        "requested_percent",
+        "minimum",
+        "maximum"
+      ],
+      "additionalProperties": false
     }
   }
 }

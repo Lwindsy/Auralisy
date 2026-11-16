@@ -29,6 +29,7 @@ class ReferenceCatalog:
     def __init__(
         self, document: dict, *, expected_revision: str | None = None, taxonomy: dict | None = None
     ) -> None:
+        self.available_ids = None
         self.revision = digest(document)
         if expected_revision is not None and expected_revision != self.revision:
             raise PreferenceError("REFERENCE_VERSION_MISMATCH")
@@ -45,6 +46,11 @@ class ReferenceCatalog:
                 identifier: branch["genre_ids"] for identifier, branch in self.branches.items()
             }
             self._has_taxonomy = taxonomy is not None
+            self._genre_children = {}
+            if taxonomy is not None:
+                for node in taxonomy["genres"]:
+                    for parent in node["parents"]:
+                        self._genre_children.setdefault(parent, []).append(node["id"])
             if taxonomy is not None:
                 self._branch_genres = self._direct_members(taxonomy)
             elif "taxonomy_sha256" in document:
@@ -118,6 +124,8 @@ class ReferenceCatalog:
     def named_genre_id(self, name: str) -> str | None:
         """Resolve a stated name or alias only when the catalog match is unique."""
         identifiers = self._genre_names.get(_normalized_name(name), set())
+        if self.available_ids is not None:
+            identifiers = identifiers & self.available_ids
         return next(iter(identifiers)) if len(identifiers) == 1 else None
 
     @staticmethod
@@ -168,7 +176,20 @@ class ReferenceCatalog:
     def _genre_material(self, branch_id: str) -> list[dict]:
         if self._branch_genres is None:
             raise PreferenceError("REFERENCE_UNAVAILABLE")
-        rows = (self.genres[identifier] for identifier in self._branch_genres[branch_id])
+        identifiers = list(self._branch_genres[branch_id])
+        if self.available_ids is not None:
+            visible, visited = [], set()
+            while identifiers:
+                identifier = identifiers.pop(0)
+                if identifier in visited:
+                    continue
+                visited.add(identifier)
+                if identifier in self.available_ids:
+                    visible.append(identifier)
+                else:
+                    identifiers.extend(self._genre_children.get(identifier, ()))
+            identifiers = visible
+        rows = (self.genres[identifier] for identifier in identifiers)
         return [
             self.material(row) for row in rows if self._has_taxonomy or row["description"].strip()
         ]
