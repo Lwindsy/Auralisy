@@ -56,6 +56,9 @@ public interface DiscoveryStore {
 
     java.util.Optional<Round> latestRound(Scope scope);
 
+    /** Same ownership and latest-round ordering as latestRound, without loading configuration. */
+    java.util.Optional<String> latestRoundId(Scope scope);
+
     Round roundInfo(Scope scope, String round);
 
     void configureRound(Scope scope, String round, String configuration);

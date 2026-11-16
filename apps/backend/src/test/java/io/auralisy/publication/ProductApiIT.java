@@ -4,14 +4,144 @@ import static io.auralisy.contracts.CanonicalJson.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.auralisy.discovery.application.Recommendations;
 import java.time.Instant;
 import java.util.*;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @EnabledIfEnvironmentVariable(named = "AURALIS_TEST_POSTGRES_URL", matches = ".+")
 class ProductApiIT extends ProductApiFixture {
+    @Test
+    void slowSubmitResponseDoesNotBlockAnotherSubjectsAdmission() throws Exception {
+        var first = browser();
+        var second = browser();
+        var body =
+                JSON.createObjectNode()
+                        .put("expected_revision", first.state.path("revision").asLong());
+        body.set("expected_session_id", first.state.path("session_id"));
+        body.set("input", userInput(""));
+        var rendering = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        var delayed = org.mockito.Mockito.spy(app.getBean(Recommendations.class));
+        org.mockito.Mockito.doAnswer(
+                        invocation -> {
+                            rendering.countDown();
+                            assertTrue(release.await(10, TimeUnit.SECONDS));
+                            return invocation.callRealMethod();
+                        })
+                .when(delayed)
+                .state(
+                        org.mockito.ArgumentMatchers.eq(first.token()),
+                        org.mockito.ArgumentMatchers.anyString(),
+                        org.mockito.ArgumentMatchers.eq(false));
+        peer.hold = true;
+        try (var worker = Executors.newSingleThreadExecutor()) {
+            var response =
+                    worker.submit(
+                            () ->
+                                    delayed.submit(
+                                            first.token(),
+                                            first.csrf,
+                                            "slow-response",
+                                            body.toString()));
+            try {
+                assertTrue(rendering.await(5, TimeUnit.SECONDS));
+                var admitted = second.submit(userInput(""), "independent-submission");
+                assertEquals(202, admitted.status(), admitted.body().toString());
+                assertFalse(response.isDone(), "The first HTTP response is still being rendered");
+                assertEquals(
+                        1,
+                        jdbc.queryForObject(
+                                "SELECT count(*) FROM discovery.discovery_intent WHERE session_id=?",
+                                Integer.class,
+                                second.session()));
+            } finally {
+                release.countDown();
+            }
+            var initial = JSON.readTree(response.get(5, TimeUnit.SECONDS));
+            var replay = first.request("POST", "/v1/discovery-sessions", body, "slow-response");
+            assertEquals(202, replay.status(), replay.body().toString());
+            assertTrue(initial.path("run_id").isTextual());
+            assertFalse(initial.path("run_id").asText().isBlank());
+            assertEquals(initial.path("session_id"), replay.body().path("session_id"));
+            assertEquals(initial.path("run_id"), replay.body().path("run_id"));
+            assertEquals(
+                    1,
+                    jdbc.queryForObject(
+                            "SELECT count(*) FROM discovery.discovery_intent WHERE session_id=?",
+                            Integer.class,
+                            first.session()));
+        } finally {
+            release.countDown();
+            peer.hold = false;
+            org.mockito.Mockito.framework().clearInlineMock(delayed);
+        }
+    }
+
+    @Test
+    void currentStateKeepsLiveReviewUpdatesAndUtf8WithoutRenewingTheSession() throws Exception {
+        var b = browser();
+        b.submit(userInput(""), "live-state-read");
+        b.awaitState(
+                s ->
+                        s.path("slots").size() > 0
+                                && s.path("slots")
+                                        .get(0)
+                                        .path("card")
+                                        .path("long_review_state")
+                                        .asText()
+                                        .equals("READY"));
+        for (var job : peer.jobs.values()) job.done.get(10, java.util.concurrent.TimeUnit.SECONDS);
+        b.refresh();
+        String candidate = b.state.path("slots").get(0).path("card").path("candidate_id").asText();
+        String expiry = b.state.path("expires_at").asText();
+        long revision = b.state.path("revision").asLong();
+        assertEquals(
+                1,
+                jdbc.update(
+                        "UPDATE discovery.long_review SET state='FAILED',content=NULL,reason='WRITE_INVALID_OUTPUT',revision=revision+1 WHERE session_id=? AND candidate_id=?",
+                        b.session(),
+                        candidate));
+        var response =
+                b.client.send(
+                        java.net.http.HttpRequest.newBuilder(
+                                        java.net.URI.create(base + "/v1/current-state"))
+                                .timeout(java.time.Duration.ofSeconds(5))
+                                .GET()
+                                .build(),
+                        java.net.http.HttpResponse.BodyHandlers.ofByteArray());
+        assertEquals(200, response.statusCode());
+        assertTrue(
+                response.headers()
+                        .firstValue("Content-Type")
+                        .orElseThrow()
+                        .startsWith("application/json"));
+        var state = JSON.readTree(response.body());
+        assertEquals(
+                "FAILED",
+                state.path("slots").get(0).path("card").path("long_review_state").asText());
+        assertTrue(
+                state.path("slots")
+                        .get(0)
+                        .path("card")
+                        .path("identity")
+                        .path("title")
+                        .asText()
+                        .contains("专辑"));
+        assertEquals(expiry, state.path("expires_at").asText());
+        assertEquals(revision, state.path("revision").asLong());
+        b.connect();
+        assertEquals(
+                "FAILED",
+                b.state.path("slots").get(0).path("card").path("long_review_state").asText());
+        assertEquals(expiry, b.state.path("expires_at").asText());
+    }
+
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.ValueSource(strings = {"HEARD", "REPLACE"})
     void undoRestoresLastCardAndFeedbackAndSurvivesLateSupply(String action) throws Exception {

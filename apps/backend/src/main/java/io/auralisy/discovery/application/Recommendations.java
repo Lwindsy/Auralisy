@@ -515,11 +515,10 @@ public class Recommendations {
         var input = resolve(request.path("input"), dataset, settings);
         var reuse = reuse(token, key, request, input, settings, dataset);
         if (reuse.cached() != null) return reuse.cached();
-        return tx.write(
-                () -> {
-                    discovery.lockRuntime();
-                    if (versions.current() != dataset) fail("CATALOG_VERSION_CHANGED");
-                    if (reuse.eligible()) {
+        if (reuse.eligible())
+            return tx.write(
+                    () -> {
+                        if (versions.current() != dataset) fail("CATALOG_VERSION_CHANGED");
                         var current = owned(token, request.path("expected_session_id").asText());
                         if (current.revision() != request.path("expected_revision").asLong())
                             fail("REVISION_CONFLICT");
@@ -534,122 +533,148 @@ public class Recommendations {
                                 result,
                                 clock.instant());
                         return result;
-                    }
-                    var replacement =
-                            subjects.replace(
-                                    token,
-                                    csrf,
-                                    key,
-                                    request.path("expected_session_id").isNull()
-                                            ? null
-                                            : request.path("expected_session_id").asText(),
-                                    request.path("expected_revision").asLong(),
-                                    request.path("input").toString(),
-                                    input.raw().toString());
-                    if (replacement.replayed())
-                        return state(token, replacement.scope().sessionId(), false);
-                    var scope = replacement.scope();
-                    String roundId = UUID.randomUUID().toString();
-                    var config = configuration(settings, dataset, input.external(), accepted);
-                    if (input.raw().path("request_text").asText().isBlank()) {
-                        var proposal =
-                                JSON.createObjectNode()
-                                        .put(
-                                                "input_digest",
-                                                input.raw().path("input_digest").asText())
-                                        .put(
-                                                "reference_revision",
-                                                settings.path("reference_revision").asText())
-                                        .put(
-                                                "parser_revision",
-                                                settings.path("parser_revisions").get(0).asText());
-                        for (String field :
-                                List.of(
-                                        "preferences",
-                                        "constraints",
-                                        "unresolved_constraints",
-                                        "soft_preferences")) proposal.putArray(field);
-                        proposal.put("proposal_digest", contentDigest(proposal, "proposal_digest"));
-                        var snapshot =
-                                json(
-                                        preferences.resolve(
-                                                preferenceContext(
-                                                        scope, "structured:" + roundId, config),
-                                                proposal.toString()));
-                        config.put(
-                                "preference_resolution", snapshot.path("resolution_id").asText());
-                    }
-                    discovery.createRound(
-                            scope,
-                            roundId,
-                            1,
-                            config.toString(),
-                            settings.path("recall_binding").toString(),
-                            accepted.plusSeconds(limits.executionSeconds()));
-                    var round = discovery.roundInfo(scope, roundId);
-                    var snapshot = effective(scope, config);
-                    if (!snapshot.isNull() && !snapshot.path("has_positive_signal").asBoolean()) {
-                        var fixed = curatedCandidates(scope, roundId, snapshot.toString(), config);
-                        String run = scopeId("curated", key);
-                        discovery.createIntent(
-                                scope,
-                                roundId,
-                                run,
-                                "INITIAL",
-                                sessions.inputRevision(scope),
-                                digest(request),
-                                accepted,
-                                accepted.plusSeconds(limits.queueSeconds()));
-                        if (!discovery.transitionRun(scope, run, 0, "WAITING", "SUCCEEDED"))
-                            fail("REVISION_CONFLICT");
-                        config.put("curated_prepared", true)
-                                .put("curated_revision", fixed.revision());
-                        discovery.configureRound(scope, roundId, config.toString());
-                        publication.publishCurated(
-                                scope,
-                                roundId,
-                                run,
-                                settings.path("selection_config")
-                                        .path("recommendation_target_count")
-                                        .asInt(),
-                                fixed);
-                        return state(token, scope.sessionId(), false);
-                    }
-                    audience.audience(
-                            dataset,
-                            convert(settings.path("audience_binding"), AudienceQuery.Binding.class),
-                            List.of());
-                    var queued =
-                            enqueue(
+                    });
+        String session =
+                tx.write(
+                        () -> {
+                            discovery.lockRuntime();
+                            if (versions.current() != dataset) fail("CATALOG_VERSION_CHANGED");
+                            var replacement =
+                                    subjects.replace(
+                                            token,
+                                            csrf,
+                                            key,
+                                            request.path("expected_session_id").isNull()
+                                                    ? null
+                                                    : request.path("expected_session_id").asText(),
+                                            request.path("expected_revision").asLong(),
+                                            request.path("input").toString(),
+                                            input.raw().toString());
+                            if (replacement.replayed()) return replacement.scope().sessionId();
+                            var scope = replacement.scope();
+                            String roundId = UUID.randomUUID().toString();
+                            var config =
+                                    configuration(settings, dataset, input.external(), accepted);
+                            if (input.raw().path("request_text").asText().isBlank()) {
+                                var proposal =
+                                        JSON.createObjectNode()
+                                                .put(
+                                                        "input_digest",
+                                                        input.raw().path("input_digest").asText())
+                                                .put(
+                                                        "reference_revision",
+                                                        settings.path("reference_revision")
+                                                                .asText())
+                                                .put(
+                                                        "parser_revision",
+                                                        settings.path("parser_revisions")
+                                                                .get(0)
+                                                                .asText());
+                                for (String field :
+                                        List.of(
+                                                "preferences",
+                                                "constraints",
+                                                "unresolved_constraints",
+                                                "soft_preferences")) proposal.putArray(field);
+                                proposal.put(
+                                        "proposal_digest",
+                                        contentDigest(proposal, "proposal_digest"));
+                                var snapshot =
+                                        json(
+                                                preferences.resolve(
+                                                        preferenceContext(
+                                                                scope,
+                                                                "structured:" + roundId,
+                                                                config),
+                                                        proposal.toString()));
+                                config.put(
+                                        "preference_resolution",
+                                        snapshot.path("resolution_id").asText());
+                            }
+                            discovery.createRound(
                                     scope,
-                                    round,
-                                    config,
-                                    "INITIAL",
-                                    scopeId("submit", key),
-                                    Set.of(),
-                                    false,
-                                    accepted);
-                    publication.begin(
-                            scope,
-                            roundId,
-                            queued.run(),
-                            settings.path("selection_config")
-                                    .path("recommendation_target_count")
-                                    .asInt(),
-                            "WAITING");
-                    return state(token, scope.sessionId(), false);
-                });
+                                    roundId,
+                                    1,
+                                    config.toString(),
+                                    settings.path("recall_binding").toString(),
+                                    accepted.plusSeconds(limits.executionSeconds()));
+                            var round = discovery.roundInfo(scope, roundId);
+                            var snapshot = effective(scope, config);
+                            if (!snapshot.isNull()
+                                    && !snapshot.path("has_positive_signal").asBoolean()) {
+                                var fixed =
+                                        curatedCandidates(
+                                                scope, roundId, snapshot.toString(), config);
+                                String run = scopeId("curated", key);
+                                discovery.createIntent(
+                                        scope,
+                                        roundId,
+                                        run,
+                                        "INITIAL",
+                                        sessions.inputRevision(scope),
+                                        digest(request),
+                                        accepted,
+                                        accepted.plusSeconds(limits.queueSeconds()));
+                                if (!discovery.transitionRun(scope, run, 0, "WAITING", "SUCCEEDED"))
+                                    fail("REVISION_CONFLICT");
+                                config.put("curated_prepared", true)
+                                        .put("curated_revision", fixed.revision());
+                                discovery.configureRound(scope, roundId, config.toString());
+                                publication.publishCurated(
+                                        scope,
+                                        roundId,
+                                        run,
+                                        settings.path("selection_config")
+                                                .path("recommendation_target_count")
+                                                .asInt(),
+                                        fixed);
+                                return scope.sessionId();
+                            }
+                            audience.audience(
+                                    dataset,
+                                    convert(
+                                            settings.path("audience_binding"),
+                                            AudienceQuery.Binding.class),
+                                    List.of());
+                            var queued =
+                                    enqueue(
+                                            scope,
+                                            round,
+                                            config,
+                                            "INITIAL",
+                                            scopeId("submit", key),
+                                            Set.of(),
+                                            false,
+                                            accepted);
+                            publication.begin(
+                                    scope,
+                                    roundId,
+                                    queued.run(),
+                                    settings.path("selection_config")
+                                            .path("recommendation_target_count")
+                                            .asInt(),
+                                    "WAITING");
+                            return scope.sessionId();
+                        });
+        // Commit admission and its recovery projection before rendering the HTTP response.
+        // A slow response must not hold the global scheduling lock for other subjects.
+        return state(token, session, false);
     }
 
     public String state(String token, String session, boolean restored) {
         return tx.write(
                 () -> {
-                    var recovery = (ObjectNode) json(subjects.restore(token, session));
+                    var restoration = subjects.restoreForRender(token, session);
+                    var recovery = (ObjectNode) json(restoration.state());
                     if (recovery.path("session_id").isNull()) return recovery.toString();
-                    var scope = owned(token, recovery.path("session_id").asText());
-                    var current = discovery.latestRound(scope);
-                    if (current.isEmpty()) return recovery.toString();
-                    var value = (ObjectNode) json(publication.state(scope, current.get().id()));
+                    var scope =
+                            restoration
+                                    .scope()
+                                    .orElseThrow(
+                                            () -> new PersistenceRejected("RESOURCE_UNAVAILABLE"));
+                    var current = discovery.latestRoundId(scope);
+                    if (current.isEmpty()) return subjects.restore(token, session);
+                    var value = (ObjectNode) json(publication.state(scope, current.get()));
                     value.set("editable_input", recovery.path("editable_input"));
                     value.set("expires_at", recovery.path("expires_at"));
                     value.put("restored", restored);

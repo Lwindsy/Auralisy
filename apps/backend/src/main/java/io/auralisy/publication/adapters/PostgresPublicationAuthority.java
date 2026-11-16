@@ -573,10 +573,7 @@ public class PostgresPublicationAuthority implements PublicationAuthority {
                         > 0;
         waiting =
                 waiting
-                        && discovery
-                                .latestRound(s)
-                                .map(latest -> latest.id().equals(r))
-                                .orElse(false)
+                        && discovery.latestRoundId(s).map(latest -> latest.equals(r)).orElse(false)
                         && (observerRun == null || observerRun.equals(round(s, r).get("run_id")));
         out.put("user_waiting", waiting);
         if (waiting) out.put("run_id", (String) round(s, r).get("run_id"));
@@ -585,7 +582,7 @@ public class PostgresPublicationAuthority implements PublicationAuthority {
     }
 
     private String saveState(Scope s, String r) {
-        String state = render(s, discovery.latestRound(s).map(DiscoveryStore.Round::id).orElse(r));
+        String state = render(s, discovery.latestRoundId(s).orElse(r));
         projection.save(s, state);
         return state;
     }
@@ -1105,12 +1102,7 @@ public class PostgresPublicationAuthority implements PublicationAuthority {
                     }
                     guard(c);
                     var row = round(s, r);
-                    boolean currentRound =
-                            discovery
-                                    .latestRound(s)
-                                    .map(DiscoveryStore.Round::id)
-                                    .orElse(r)
-                                    .equals(r);
+                    boolean currentRound = discovery.latestRoundId(s).orElse(r).equals(r);
                     if (!currentRound && !delivery.path("run_id").isNull())
                         fail("BINDING_MISMATCH");
                     var bound =

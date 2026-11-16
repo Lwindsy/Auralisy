@@ -181,6 +181,18 @@ public class PostgresDiscoveryStore implements DiscoveryStore {
     }
 
     @Override
+    public java.util.Optional<String> latestRoundId(Scope scope) {
+        sessions.lockActive(scope);
+        return jdbc
+                .queryForList(
+                        "SELECT id FROM discovery.recommendation_round WHERE session_id=? ORDER BY round_seq DESC LIMIT 1",
+                        String.class,
+                        scope.sessionId())
+                .stream()
+                .findFirst();
+    }
+
+    @Override
     public Round roundInfo(Scope scope, String round) {
         sessions.lockActive(scope);
         var rows =

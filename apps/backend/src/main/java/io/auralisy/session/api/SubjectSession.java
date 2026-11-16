@@ -16,6 +16,8 @@ public interface SubjectSession {
 
     record Replacement(SessionStore.Scope scope, String previousSessionId, boolean replayed) {}
 
+    record Restoration(Optional<SessionStore.Scope> scope, String state) {}
+
     Optional<Identity> authenticate(String credential);
 
     boolean validCsrf(String credential, String csrf);
@@ -23,6 +25,9 @@ public interface SubjectSession {
     Bootstrap bootstrap(String credential);
 
     String restore(String credential, String sessionId);
+
+    /** Authorized, revision-checked snapshot for a caller that rebuilds all live status fields. */
+    Restoration restoreForRender(String credential, String sessionId);
 
     Replacement replace(
             String credential,

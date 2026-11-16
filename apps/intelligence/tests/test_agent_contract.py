@@ -49,6 +49,60 @@ def test_shared_wire_cases(case):
             validate_message(case["message"])
 
 
+def test_wire_variants_have_unique_required_discriminators():
+    variants = schema()["$defs"]["Envelope"]["oneOf"]
+    names = [variant["properties"]["message_type"]["const"] for variant in variants]
+    assert len(names) == len(set(names))
+    assert all("message_type" in variant["required"] for variant in variants)
+
+
+@pytest.mark.parametrize("name", ["UnknownMessage", "", None, [], {}])
+def test_wire_rejects_unknown_or_non_string_message_type(name):
+    message = deepcopy(CASES[0]["message"])
+    message["message_type"] = name
+    with pytest.raises(ContractError, match="INVALID_PAYLOAD"):
+        validate_message(message)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("schema_version", "intel.old"),
+        ("contract_revision", "0.31"),
+        ("request_id", ""),
+        ("trace_context", {}),
+        ("payload", None),
+        ("unexpected", True),
+    ],
+)
+def test_wire_branch_still_validates_headers_and_payload(field, value):
+    message = deepcopy(CASES[0]["message"])
+    message[field] = value
+    with pytest.raises(ContractError, match="INVALID_PAYLOAD"):
+        validate_message(message)
+
+
+def test_wire_branch_keeps_payload_semantic_validation():
+    message = deepcopy(CASES[0]["message"])
+    message["message_type"] = "RuntimeView"
+    message["payload"] = deepcopy(
+        next(
+            case["payload"]
+            for case in INTEGRATION_CASES
+            if case["name"] == "duplicate-active-rejected"
+        )
+    )
+    assert Draft202012Validator(schema(), format_checker=FormatChecker()).is_valid(message)
+    with pytest.raises(ContractError, match="DUPLICATE_ID"):
+        validate_message(message)
+
+
+@pytest.mark.parametrize("message", [None, [], "not an envelope"])
+def test_wire_rejects_non_object_envelopes(message):
+    with pytest.raises(ContractError, match="INVALID_PAYLOAD"):
+        validate_message(message)
+
+
 @pytest.mark.parametrize("capacity", [0, 17, -1, True, "3", None])
 def test_runtime_rejects_unsupported_capacity(capacity):
     with pytest.raises(ContractError):

@@ -21,6 +21,7 @@ public final class LuceneCatalogSearch implements CatalogSearchPort, AutoCloseab
     private final Semaphore slots = new Semaphore(5, true);
     private final String revision;
     private final java.util.function.Supplier<Map<String, Long>> popularity;
+    private PopularityScore cachedPopularity;
 
     public LuceneCatalogSearch(Path path, String expectedManifest) throws IOException {
         this(path, expectedManifest, Map::of);
@@ -47,6 +48,7 @@ public final class LuceneCatalogSearch implements CatalogSearchPort, AutoCloseab
             reader = opened;
             searcher = new IndexSearcher(reader);
             revision = expectedManifest;
+            scoreFor(popularity.get());
         } catch (Exception failure) {
             if (opened != null) opened.close();
             directory.close();
@@ -105,14 +107,15 @@ public final class LuceneCatalogSearch implements CatalogSearchPort, AutoCloseab
                             ? new TermQuery(new Term("exact", CatalogAnalyzer.exact(text)))
                             : query.build();
             var counts = popularity.get();
+            var popularityScore = scoreFor(counts);
             var hits =
                     searcher.search(
                             effective,
                             offset + limit + 1,
                             new Sort(
-                                    counts.isEmpty()
+                                    popularityScore == null
                                             ? SortField.FIELD_SCORE
-                                            : new PopularityScore(counts).getSortField(true),
+                                            : popularityScore.getSortField(true),
                                     new SortField("sort_id", SortField.Type.STRING)));
             var result = new ArrayList<Album>();
             for (int i = offset; i < Math.min(hits.scoreDocs.length, offset + limit); i++)
@@ -129,31 +132,51 @@ public final class LuceneCatalogSearch implements CatalogSearchPort, AutoCloseab
         }
     }
 
+    /** The audience adapter supplies an immutable map and replaces it when its snapshot changes. */
+    private synchronized PopularityScore scoreFor(Map<String, Long> counts) throws IOException {
+        if (counts.isEmpty()) {
+            cachedPopularity = null;
+            return null;
+        }
+        if (cachedPopularity != null && cachedPopularity.counts == counts) return cachedPopularity;
+        // This index reader is immutable. Compute the same boost once per document/snapshot,
+        // rather than decoding its UUID and evaluating log1p on every matching search hit.
+        var boosts = new double[reader.maxDoc()];
+        for (var leaf : reader.leaves()) {
+            var ids = DocValues.getSorted(leaf.reader(), "sort_id");
+            for (int doc = ids.nextDoc(); doc != DocIdSetIterator.NO_MORE_DOCS; doc = ids.nextDoc())
+                boosts[leaf.docBase + doc] =
+                        8
+                                * Math.log1p(
+                                        counts.getOrDefault(
+                                                ids.lookupOrd(ids.ordValue()).utf8ToString(), 0L));
+        }
+        cachedPopularity = new PopularityScore(counts, boosts);
+        return cachedPopularity;
+    }
+
     private static final class PopularityScore extends DoubleValuesSource {
         private final Map<String, Long> counts;
+        private final double[] boosts;
 
-        PopularityScore(Map<String, Long> counts) {
+        PopularityScore(Map<String, Long> counts, double[] boosts) {
             this.counts = counts;
+            this.boosts = boosts;
         }
 
         @Override
         public DoubleValues getValues(LeafReaderContext context, DoubleValues scores)
                 throws IOException {
-            var ids = DocValues.getSorted(context.reader(), "sort_id");
             return new DoubleValues() {
-                private long listeners;
+                private double boost;
 
                 public boolean advanceExact(int doc) throws IOException {
-                    listeners =
-                            ids.advanceExact(doc)
-                                    ? counts.getOrDefault(
-                                            ids.lookupOrd(ids.ordValue()).utf8ToString(), 0L)
-                                    : 0;
+                    boost = boosts[context.docBase + doc];
                     return scores.advanceExact(doc);
                 }
 
                 public double doubleValue() throws IOException {
-                    return scores.doubleValue() + 8 * Math.log1p(listeners);
+                    return scores.doubleValue() + boost;
                 }
             };
         }

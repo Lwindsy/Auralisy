@@ -157,13 +157,18 @@ public class SubjectSessions implements SubjectSession {
     }
 
     private ObjectNode render(SubjectRepository.Subject subject, String sessionId) {
-        if (sessionId == null) return empty(subject.expiresAt(), null);
+        return rendered(subject, sessionId, true).state();
+    }
+
+    private record Rendered(SessionStore.Scope scope, ObjectNode state) {}
+
+    private Rendered rendered(SubjectRepository.Subject subject, String sessionId, boolean live) {
+        if (sessionId == null) return new Rendered(null, empty(subject.expiresAt(), null));
         var session = owned(subject, sessionId);
         var scope = session.scope(subject.epoch());
         var state =
                 parse(
-                        projection
-                                .read(scope)
+                        (live ? projection.read(scope) : projection.readStored(scope))
                                 .orElseThrow(
                                         () -> new PersistenceRejected("DEPENDENCY_UNAVAILABLE")),
                         "ProductState");
@@ -175,7 +180,7 @@ public class SubjectSessions implements SubjectSession {
         state.put("expires_at", session.expiresAt().toString());
         state.put("restored", true);
         if (state.path("message_key").isNull()) state.put("message_key", "session.restored");
-        return state;
+        return new Rendered(scope, state);
     }
 
     @Override
@@ -210,6 +215,21 @@ public class SubjectSessions implements SubjectSession {
                     var subject = require(token, true);
                     return render(subject, sessionId == null ? subject.currentSession() : sessionId)
                             .toString();
+                });
+    }
+
+    @Override
+    public Restoration restoreForRender(String token, String sessionId) {
+        return tx.write(
+                () -> {
+                    var subject = require(token, true);
+                    var view =
+                            rendered(
+                                    subject,
+                                    sessionId == null ? subject.currentSession() : sessionId,
+                                    false);
+                    return new Restoration(
+                            Optional.ofNullable(view.scope()), view.state().toString());
                 });
     }
 
