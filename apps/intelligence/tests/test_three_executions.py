@@ -1,4 +1,4 @@
-"""Three independent lifecycles, physical cleanup and boot-scoped wire evidence."""
+"""Independent lifecycles, configured capacity and boot-scoped wire evidence."""
 
 import asyncio
 from datetime import datetime, timedelta, timezone
@@ -66,11 +66,13 @@ def test_three_complete_rounds_keep_results_and_contexts_separate(tmp_path):
     asyncio.run(run())
 
 
-def test_three_http_executions_cancel_erase_and_shutdown_are_isolated():
+@pytest.mark.parametrize("capacity", [3, 6, 16])
+def test_http_executions_cancel_erase_and_shutdown_are_isolated(capacity):
     async def run():
-        supervisor, control = setup(start())
+        supervisor, control = setup(start(), execution_capacity=capacity)
         stopping, release = asyncio.Event(), asyncio.Event()
         entered = set()
+        identifiers = ["one", "two", *(f"execution-{i}" for i in range(2, capacity))]
 
         async def stage(execution):
             entered.add(execution.id)
@@ -105,14 +107,13 @@ def test_three_http_executions_cancel_erase_and_shutdown_are_isolated():
                 return message["payload"]
 
             assert [
-                r.status_code
-                for r in await asyncio.gather(*(put(i) for i in ("one", "two", "three")))
-            ] == [201] * 3
-            assert entered == {"one", "two", "three"}
-            assert (await put("four")).status_code == 409
+                r.status_code for r in await asyncio.gather(*(put(i) for i in identifiers))
+            ] == [201] * capacity
+            assert entered == set(identifiers)
+            assert (await put("overflow")).status_code == 409
             assert (await put("two")).status_code == 200
             snapshot = await runtime()
-            assert snapshot["execution_capacity"] == 3
+            assert snapshot["execution_capacity"] == capacity
             assert {row["execution_id"] for row in snapshot["active"]} == entered
             assert not supervisor.active["one"].cancelled.is_set()
             cancellation = asyncio.create_task(
@@ -126,18 +127,21 @@ def test_three_http_executions_cancel_erase_and_shutdown_are_isolated():
                 )
             )
             await asyncio.wait_for(stopping.wait(), 2)
-            assert len((await runtime())["active"]) == 3
-            assert (await put("four")).status_code == 409
-            assert not any(supervisor.active[i].cancelled.is_set() for i in ("two", "three"))
+            assert len((await runtime())["active"]) == capacity
+            assert (await put("overflow")).status_code == 409
+            assert not any(supervisor.active[i].cancelled.is_set() for i in identifiers[1:])
             release.set()
             assert (await cancellation).json()["payload"]["slot_released"]
-            assert (await put("four")).status_code == 201
+            assert (await put("overflow")).status_code == 201
             erased = await http.put(
                 "/internal/v1/erasures/subject-two", json=envelope("Erasure", {"epoch": 1}, "erase")
             )
             assert erased.status_code == 200
             assert (await put("two")).json()["payload"]["code"] == "SUBJECT_REVOKED"
-            assert {row["execution_id"] for row in (await runtime())["active"]} == {"three", "four"}
+            assert {row["execution_id"] for row in (await runtime())["active"]} == {
+                *identifiers[2:],
+                "overflow",
+            }
         assert not supervisor.active
         assert all(record[1].slot_released for record in supervisor.records.values())
         assert supervisor.maintenance
@@ -176,9 +180,10 @@ def test_cancel_during_natural_cleanup_cannot_interrupt_physical_release():
     asyncio.run(run())
 
 
-def test_cleanup_failure_remains_visible_and_holds_capacity():
+@pytest.mark.parametrize("capacity", [1, 3, 16])
+def test_cleanup_failure_remains_visible_and_holds_capacity(capacity):
     async def run():
-        supervisor, control = setup(start())
+        supervisor, control = setup(start(), execution_capacity=capacity)
 
         async def stage(execution):
             async def broken():
@@ -186,14 +191,14 @@ def test_cleanup_failure_remains_visible_and_holds_capacity():
 
             execution.cleanup = broken
 
-        for identifier in ("one", "two", "three"):
+        for identifier in (f"execution-{i}" for i in range(capacity)):
             await supervisor.accept(start(identifier), stage, control)
             execution = await supervisor.wait(identifier)
             assert execution.error_code == "CLEANUP_FAILED"
             assert not execution.slot_released
-        assert len(supervisor.active) == 3
+        assert len(supervisor.active) == capacity
         with pytest.raises(ContractError, match="EXECUTOR_BUSY"):
-            await supervisor.accept(start("four"), stage, control)
+            await supervisor.accept(start("overflow"), stage, control)
 
     asyncio.run(run())
 

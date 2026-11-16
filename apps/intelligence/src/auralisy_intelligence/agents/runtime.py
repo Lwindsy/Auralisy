@@ -544,15 +544,18 @@ class RoundSupervisor:
         self,
         *,
         boot_id: str | None = None,
+        execution_capacity: int = 3,
         max_records: int = 256,
         resources: ServiceResources | None = None,
         receipt_timeout_seconds: float = 1.0,
     ) -> None:
+        if type(execution_capacity) is not int or not 1 <= execution_capacity <= 16:
+            raise ValueError("INVALID_EXECUTION_CAPACITY")
         self.boot_id = boot_id or str(uuid4())
         self.max_records = max_records
         self.receipt_timeout_seconds = receipt_timeout_seconds
         self.resources = resources or ServiceResources()
-        self.execution_capacity = 3
+        self.execution_capacity = execution_capacity
         self.active: dict[str, Execution] = {}
         self.records: dict[str, tuple[str, Execution, asyncio.Task]] = {}
         self.cleared: dict[str, tuple[str, datetime]] = {}

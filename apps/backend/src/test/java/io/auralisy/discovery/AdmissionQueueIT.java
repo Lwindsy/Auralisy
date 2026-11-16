@@ -18,6 +18,8 @@ import java.util.concurrent.*;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.*;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -783,6 +785,43 @@ class AdmissionQueueIT {
         assertTrue(queue.active().stream().anyMatch(j -> j.run().equals(runs.get(3).run())));
         assertTrue(peer.cancelled.isEmpty());
         assertNotNull(queue.accept(rejected, LIMITS));
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {3, 6, 16})
+    void idleBurstUsesExecutionRoomAndKeepsPhysicalCleanupBounded(int capacity) throws Exception {
+        var limits = new DispatchQueue.Limits(capacity, 5, 120, 300);
+        peer.capacity = capacity;
+        var loop = new RoundDispatcher(queue, peer, limits, "java-capacity", Clock.systemUTC());
+        loop.tick();
+        for (int n = 0; n < capacity + limits.waiting(); n++) queue.accept(input(), limits);
+        var refused = input();
+        assertFalse(tx.write(() -> queue.canAccept(refused.scope(), limits)));
+        assertThrows(PersistenceRejected.class, () -> queue.accept(refused, limits));
+        for (int n = 0; n < capacity; n++) loop.tick();
+        assertEquals(capacity, queue.active().size());
+        assertEquals(capacity, peer.sends.size());
+        assertEquals(
+                5,
+                jdbc.queryForObject(
+                        "SELECT count(*) FROM discovery.discovery_intent WHERE status='WAITING'",
+                        Integer.class));
+
+        var closing = queue.active().getFirst();
+        peer.slowCancel = true;
+        queue.cancel(closing.scope(), closing.run());
+        loop.tick();
+        assertEquals(capacity, queue.active().size());
+        assertFalse(tx.write(() -> queue.canAccept(refused.scope(), limits)));
+        assertThrows(PersistenceRejected.class, () -> queue.accept(refused, limits));
+
+        peer.slowCancel = false;
+        loop.tick();
+        assertEquals(capacity, queue.active().size());
+        assertTrue(
+                queue.active().stream().noneMatch(j -> j.execution().equals(closing.execution())));
+        assertTrue(tx.write(() -> queue.canAccept(refused.scope(), limits)));
+        assertNotNull(queue.accept(refused, limits));
     }
 
     @Test

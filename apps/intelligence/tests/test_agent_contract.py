@@ -49,6 +49,20 @@ def test_shared_wire_cases(case):
             validate_message(case["message"])
 
 
+@pytest.mark.parametrize("capacity", [0, 17, -1, True, "3", None])
+def test_runtime_rejects_unsupported_capacity(capacity):
+    with pytest.raises(ContractError):
+        validate_definition(
+            "RuntimeView",
+            {
+                "boot_id": "python-test",
+                "status": "READY",
+                "execution_capacity": capacity,
+                "active": [],
+            },
+        )
+
+
 def test_unknown_and_conflicting_bindings_do_not_leak_payload():
     with pytest.raises(ContractError, match="BINDING_MISMATCH") as result:
         require_binding({"secret-user-text": "wrong"}, {"expected": "binding"})

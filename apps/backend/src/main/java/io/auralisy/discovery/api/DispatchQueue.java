@@ -17,13 +17,10 @@ public interface DispatchQueue {
 
         public Limits {
             if (executions < 1
-                    || executions > 3
+                    || executions > 16
                     || waiting < 1
-                    || waiting > 5
                     || queueSeconds < 1
-                    || queueSeconds > 30
                     || executionSeconds < 1
-                    || executionSeconds > 180
                     || queueSeconds > executionSeconds)
                 throw new IllegalArgumentException("INVALID_DISPATCH_LIMITS");
         }

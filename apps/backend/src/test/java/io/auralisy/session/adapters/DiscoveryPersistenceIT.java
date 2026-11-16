@@ -513,7 +513,7 @@ class DiscoveryPersistenceIT {
                             .load();
             flyway.migrate();
             flyway.validate();
-            assertEquals("17", flyway.info().current().getVersion().toString());
+            assertEquals("18", flyway.info().current().getVersion().toString());
             assertEquals(0, flyway.migrate().migrationsExecuted);
             try (var c = DriverManager.getConnection(target, "be005_migrator", PASSWORD);
                     var s = c.createStatement()) {
@@ -778,7 +778,7 @@ class DiscoveryPersistenceIT {
                                                 round,
                                                 run,
                                                 id(),
-                                                4,
+                                                17,
                                                 "java-boot",
                                                 "python-boot");
                                         return null;

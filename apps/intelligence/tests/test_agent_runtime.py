@@ -41,7 +41,7 @@ def start(execution_id="execution-1"):
     return result
 
 
-def setup(request):
+def setup(request, *, execution_capacity=3):
     control = JavaControlDouble(
         "java-test",
         catalog={
@@ -55,7 +55,13 @@ def setup(request):
         },
     )
     control.register(request)
-    return RoundSupervisor(boot_id="python-test"), control
+    return RoundSupervisor(boot_id="python-test", execution_capacity=execution_capacity), control
+
+
+@pytest.mark.parametrize("capacity", [0, 17, -1, True, False, 3.0, "3", None])
+def test_execution_capacity_rejects_invalid_configuration(capacity):
+    with pytest.raises(ValueError, match="INVALID_EXECUTION_CAPACITY"):
+        RoundSupervisor(execution_capacity=capacity)
 
 
 async def bind(execution, control):

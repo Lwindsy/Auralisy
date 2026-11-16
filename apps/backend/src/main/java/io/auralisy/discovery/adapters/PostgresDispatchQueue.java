@@ -142,10 +142,7 @@ public class PostgresDispatchQueue implements DispatchQueue {
                                 JSON.valueToTree(demands).toString(),
                                 run);
                     } else {
-                        if (jdbc.queryForObject(
-                                        "SELECT count(*) FROM discovery.discovery_intent WHERE status='WAITING'",
-                                        Long.class)
-                                >= limits.waiting()) fail("QUEUE_FULL");
+                        if (!hasAdmissionRoom(limits)) fail("QUEUE_FULL");
                         run = UUID.randomUUID().toString();
                         Instant now =
                                 (r.originalAcceptedAt() == null
@@ -932,14 +929,21 @@ public class PostgresDispatchQueue implements DispatchQueue {
         return !jdbc.queryForObject(
                         "SELECT maintenance FROM discovery.runtime_control WHERE singleton",
                         Boolean.class)
-                && jdbc.queryForObject(
-                                "SELECT count(*) FROM discovery.discovery_intent WHERE status='WAITING'",
-                                Long.class)
-                        < limits.waiting()
+                && hasAdmissionRoom(limits)
                 && jdbc.queryForObject(
                                 "SELECT count(*) FROM discovery.discovery_intent WHERE subject_id=? AND status IN ('WAITING','DISPATCHING','RUNNING')",
                                 Long.class,
                                 scope.subjectId())
                         == 0;
+    }
+
+    private boolean hasAdmissionRoom(Limits limits) {
+        // All arrivals pass through WAITING, including work about to claim an idle slot.
+        return jdbc.queryForObject(
+                "SELECT (SELECT count(*) FROM discovery.discovery_intent WHERE status='WAITING')"
+                        + " < ?::bigint + (SELECT count(*) FROM discovery.execution_slot WHERE state='FREE' AND slot_no<=?)",
+                Boolean.class,
+                limits.waiting(),
+                limits.executions());
     }
 }
