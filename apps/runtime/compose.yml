@@ -20,7 +20,9 @@ services:
     network_mode: host
     restart: unless-stopped
     env_file: /etc/auralis/python.env
-    volumes: ["/opt/auralis/data:/data:ro", "/etc/auralis/config:/config:ro"]
+    volumes: ["/opt/auralis/data:/data:ro", "/etc/auralis/config:/config:ro", "reach:/derived:ro"]
+    environment:
+      AURALIS_GENRE_REACH_INDEX: /derived/genre-reach.json
     command: ["--config", "/config/agent-service.json", "--port", "18765"]
     mem_limit: 3g
     stop_grace_period: 60s
@@ -31,13 +33,23 @@ services:
     restart: unless-stopped
     env_file: /etc/auralis/java.env
     environment:
+      AURALIS_GENRE_REACH_INDEX: /derived/genre-reach.json
       AURALIS_DISPATCH_EXECUTION_SECONDS: ${AURALIS_DISPATCH_EXECUTION_SECONDS:-180}
-    volumes: ["/opt/auralis/data:/data:ro", "/etc/auralis/config:/config:ro"]
+    volumes: ["/opt/auralis/data:/data:ro", "/etc/auralis/config:/config:ro", "reach:/derived:ro"]
     mem_limit: 2g
     stop_grace_period: 60s
     depends_on:
       database: {condition: service_healthy}
       python: {condition: service_started}
+    logging: *logging
+  prepare-reach:
+    image: auralis-python:${AURALIS_RELEASE:?release required}
+    profiles: [maintenance]
+    network_mode: none
+    entrypoint: ["python", "-m", "auralisy_intelligence.recall.prepare_reach"]
+    command: ["--config", "/config/agent-service.json", "--output", "/derived/genre-reach.json", "--replace"]
+    volumes: ["/opt/auralis/data:/data:ro", "/etc/auralis/config:/config:ro", "reach:/derived"]
+    mem_limit: 3g
     logging: *logging
   migrate:
     image: auralis-java:${AURALIS_RELEASE:?release required}
@@ -56,6 +68,7 @@ services:
     mem_limit: 256m
     logging: *logging
 volumes:
+  reach:
   database:
   caddy:
   caddy-config:

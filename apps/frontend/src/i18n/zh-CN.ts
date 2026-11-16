@@ -76,13 +76,11 @@ const zhCN = {
   },
   reach: {
     label: "传播度",
-    zones: ["听众较少", "听众中等", "听众较多"],
+    zones: ["风格内小众", "风格内中等", "风格内热门"],
     about: "传播度说明",
-    info: "听众数的参考，不代表全球热度",
+    info: "按本次参照风格比较样本听众规模。越高越热门；稀疏风格按偏好推荐。",
     between: (value: number, min: number, max: number) =>
-      `${value}%，${min}–${max} 位听众`,
-    atLeast: (value: number, listeners: number) =>
-      `${value}%，至少 ${listeners} 位听众`,
+      `${value}%，风格内相对传播度 ${min}–${max}%`,
   },
   genres: {
     search: "查找风格",

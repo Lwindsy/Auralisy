@@ -29,6 +29,7 @@ class CatalogDirectoryTest {
         when(version.current()).thenReturn(1L);
         when(local.albums(anyLong(), anyList())).thenReturn(Map.of());
         when(genres.nodes(anyLong(), anySet())).thenReturn(Map.of());
+        when(genres.selectable(anyLong(), anySet())).thenCallRealMethod();
         external =
                 new CatalogSearchPort.Album(
                         album,
@@ -180,5 +181,16 @@ class CatalogDirectoryTest {
         when(genres.search(1L, "摇滚", null, 0, 20)).thenReturn(List.of(node));
         assertEquals(genre, directory.genres("摇滚", null, 0, 20).at("/items/0/genre_id").asText());
         verifyNoInteractions(remote);
+    }
+
+    @Test
+    void externalSeedMappingUsesOnlySelectableGenres() {
+        var node = new GenreQuery.Node(genre, "Rock", Set.of(), Set.of(), false, null);
+        when(genres.nodes(1L, Set.of(genre))).thenReturn(Map.of(genre, node));
+        doReturn(Set.of()).when(genres).selectable(1L, Set.of(genre));
+        assertTrue(directory.resolve(album).at("/input/external/mapped_genre_ids").isEmpty());
+        doReturn(Set.of(genre)).when(genres).selectable(1L, Set.of(genre));
+        assertEquals(
+                genre, directory.resolve(album).at("/input/external/mapped_genre_ids/0").asText());
     }
 }

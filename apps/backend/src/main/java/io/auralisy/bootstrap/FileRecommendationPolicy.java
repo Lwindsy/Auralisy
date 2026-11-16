@@ -17,7 +17,8 @@ public final class FileRecommendationPolicy implements RecommendationPolicy {
     public FileRecommendationPolicy(
             @Value("${auralis.recommendation-config:}") String path,
             WireProtocol schema,
-            OnlineProperties properties) {
+            OnlineProperties properties,
+            io.auralisy.catalog.adapters.GenreReachIndex reach) {
         if (path.isBlank()) {
             snapshot = null;
             return;
@@ -59,6 +60,10 @@ public final class FileRecommendationPolicy implements RecommendationPolicy {
                 target.set("window", binding.path("window"));
                 target.set("sample_listeners", binding.path("sampleListeners"));
                 target.set("snapshot_digest", binding.path("snapshotDigest"));
+            }
+            if (reach.enabled()) {
+                agentPolicy.put("audience_reach_index_digest", reach.digestValue());
+                reach.requirePolicy(agentPolicy);
             }
             // The previous online default only allowed search or read before the final answer.
             var writing = agentPolicy.path("writing");

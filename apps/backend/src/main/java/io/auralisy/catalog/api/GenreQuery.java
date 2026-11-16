@@ -16,6 +16,14 @@ public interface GenreQuery {
         }
     }
 
+    default Set<String> selectable(long dataset, Set<String> genres) {
+        return nodes(dataset, genres).keySet();
+    }
+
+    default boolean selectable(long dataset, String genre) {
+        return selectable(dataset, Set.of(genre)).contains(genre);
+    }
+
     List<Node> search(long dataset, String query, String parent, int offset, int limit);
 
     Set<String> descendants(long dataset, Set<String> genres);

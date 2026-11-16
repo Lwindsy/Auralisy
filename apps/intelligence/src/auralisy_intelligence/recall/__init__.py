@@ -7,6 +7,8 @@ import numpy as np
 
 from .c_v0 import load_comparison
 from .common import recall as _rank
+from .common import validate_request
+from .genre_reach import ReachFilter
 from .io import load_dataset
 from .neighborhood import NeighborhoodConfig, NeighborhoodModel
 from .types import Candidate, Preference, RecallModel, RecallRequest, RecallResult, WeightConfig
@@ -35,6 +37,9 @@ class RecallEngine:
         """Install an independently admitted population; never mutate training statistics."""
         self._full_audience = audience
 
+    def bind_reach_index(self, index) -> None:
+        self._reach_filter = ReachFilter(index, self._model.data, self._full_audience)
+
     @property
     def audience_binding(self) -> dict | None:
         return self._full_audience.binding_copy() if self._full_audience is not None else None
@@ -45,9 +50,22 @@ class RecallEngine:
         *,
         min_listeners: int | None = None,
         max_listeners: int | None = None,
+        reach_percent: int | None = None,
+        reference_request: RecallRequest | None = None,
     ) -> RecallResult:
-        mask = None
-        if min_listeners is not None or max_listeners is not None:
+        mask, fallback = None, None
+        if reach_percent is not None:
+            validate_request(self._model.data, request, self._model.weights)
+            if self._full_audience is None:
+                raise ValueError("FULL_AUDIENCE_REQUIRED")
+            if not hasattr(self, "_reach_filter"):
+                raise ValueError("REACH_INDEX_REQUIRED")
+            if type(reach_percent) is not int or not 0 <= reach_percent <= 100:
+                raise ValueError("REACH_POSITION_INVALID")
+            mask, fallback = self._reach_filter.evaluate(
+                reference_request or request, reach_percent, self._model.weights
+            )
+        elif min_listeners is not None or max_listeners is not None:
             minimum = min_listeners if min_listeners is not None else 0
             maximum = max_listeners if max_listeners is not None else float("inf")
             if not 0 <= minimum <= maximum:
@@ -63,7 +81,8 @@ class RecallEngine:
                 dtype=bool,
             )
         return replace(
-            _rank(self._model, request, eligibility_mask=mask), algorithm=self._algorithm
+            _rank(self._model, request, eligibility_mask=mask, fallback_scores=fallback),
+            algorithm=self._algorithm,
         )
 
     def audience(self, album_ids: list[str]) -> dict:

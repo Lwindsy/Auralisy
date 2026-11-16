@@ -6,5 +6,12 @@ public interface AudienceQuery {
     /** The full-catalog population is independent of the recall model's training snapshot. */
     record Binding(String dataset, String window, long sampleListeners, String snapshotDigest) {}
 
+    default com.fasterxml.jackson.databind.JsonNode reachProof(
+            java.util.Collection<String> genres,
+            com.fasterxml.jackson.databind.JsonNode preferences,
+            com.fasterxml.jackson.databind.JsonNode policy) {
+        throw new IllegalStateException("REACH_INDEX_REQUIRED");
+    }
+
     Map<UUID, Long> audience(long catalogDataset, Binding binding, List<UUID> albums);
 }

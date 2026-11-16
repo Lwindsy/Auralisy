@@ -7,7 +7,11 @@ import {
   type Page,
   type Route,
 } from "@playwright/test";
-import type { LongReviewView, ProductState } from "../../src/api/types.ts";
+import type {
+  GenreSearchResult,
+  LongReviewView,
+  ProductState,
+} from "../../src/api/types.ts";
 import genreIntros from "../../src/content/genre-intros.json" with { type: "json" };
 import {
   FixtureBackend,
@@ -124,10 +128,10 @@ test("picked genres clear in one go; 传播度 explains itself without covering 
     page.getByRole("button", { name: "喜欢爵士", exact: true }),
   ).toHaveAttribute("aria-pressed", "false");
   await page.keyboard.press("Escape");
-  await expect(page.locator(".reach__zone")).toHaveText("听众较少");
+  await expect(page.locator(".reach__zone")).toHaveText("风格内小众");
   await page.getByRole("button", { name: "传播度说明" }).hover();
   await expect(page.getByRole("tooltip")).toHaveText(
-    "听众数的参考，不代表全球热度",
+    "按本次参照风格比较样本听众规模。越高越热门；稀疏风格按偏好推荐。",
   );
   await page.mouse.move(5, 5);
   await expect(page.getByRole("tooltip")).toHaveCount(0);
@@ -1385,4 +1389,57 @@ test("visual baselines for start page, room and mobile", async ({
   await page.setViewportSize({ width: 1360, height: 900 });
   await page.waitForTimeout(600);
   await page.screenshot({ path: "test-results/entry-en.png" });
+});
+
+test("parent genres are selectable and still open their children", async ({
+  page,
+  context,
+}) => {
+  const backend = new FixtureBackend();
+  await attach(context, backend, async (route) => {
+    const request = route.request();
+    if (!new URL(request.url()).pathname.endsWith("/catalog/genres"))
+      return false;
+    const response = backend.handle(
+      request.method(),
+      request.url(),
+      undefined,
+      request.headers(),
+    );
+    const body = response.body as GenreSearchResult;
+    body.items = body.items.map((node) => ({
+      ...node,
+      selectable: true,
+    }));
+    await route.fulfill({
+      status: response.status,
+      contentType: "application/json",
+      body: JSON.stringify(body),
+    });
+    return true;
+  });
+  await visit(page);
+  await page.getByRole("button", { name: /^风格/ }).click();
+  await expect(
+    page.getByRole("button", { name: "喜欢爵士", exact: true }),
+  ).toBeEnabled();
+  await expect(
+    page.getByRole("button", { name: "不喜欢爵士", exact: true }),
+  ).toBeEnabled();
+  await page.getByRole("button", { name: "爵士", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "喜欢Cool Jazz", exact: true }),
+  ).toBeEnabled();
+  await page
+    .getByRole("button", { name: "喜欢Cool Jazz", exact: true })
+    .click();
+  await page.keyboard.press("Escape");
+  await page.getByLabel("传播度", { exact: true }).fill("50");
+  await start(page);
+  await expect(album(page, "样例专辑 1")).toBeVisible();
+  expect(
+    backend.state.editable_input!.liked_genres.map((g) => g.genre_id),
+  ).toEqual([JAZZ_GENRE_ID, "cool-jazz"]);
+  expect(backend.state.editable_input!.audience_reach_percent).toBe(50);
+  expect(backend.state.editable_input!.audience_min_listeners).toBeUndefined();
 });

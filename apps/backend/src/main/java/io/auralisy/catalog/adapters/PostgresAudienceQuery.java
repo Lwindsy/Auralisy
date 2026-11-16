@@ -10,10 +10,26 @@ import org.springframework.stereotype.Repository;
 public class PostgresAudienceQuery implements AudienceQuery {
     private final JdbcTemplate jdbc;
     private final AudienceStore store;
+    private final GenreReachIndex reach;
 
     public PostgresAudienceQuery(JdbcTemplate jdbc, AudienceStore store) {
+        this(jdbc, store, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public PostgresAudienceQuery(JdbcTemplate jdbc, AudienceStore store, GenreReachIndex reach) {
         this.jdbc = jdbc;
         this.store = store;
+        this.reach = reach;
+    }
+
+    @Override
+    public com.fasterxml.jackson.databind.JsonNode reachProof(
+            Collection<String> genres,
+            com.fasterxml.jackson.databind.JsonNode preferences,
+            com.fasterxml.jackson.databind.JsonNode policy) {
+        if (reach == null) throw new IllegalStateException("REACH_INDEX_REQUIRED");
+        return reach.proof(genres, preferences, policy);
     }
 
     private String searchSnapshot;

@@ -18,6 +18,7 @@ from auralisy_intelligence.contracts import (
     validate_definition,
 )
 from auralisy_intelligence.recall.full_audience import matches_policy
+from auralisy_intelligence.recall.genre_reach import within_policy
 
 from .ports import ControlUnavailable
 
@@ -864,9 +865,7 @@ class JavaControlDouble:
             audience
             and audience == card["admission"].get("audience")
             and matches_policy(audience, policy)
-            and audience["listeners"] is not None
-            and audience["listeners"] >= policy["audience_min_listeners"]
-            and audience["listeners"] <= policy.get("audience_max_listeners", float("inf"))
+            and within_policy(audience, policy)
         )
 
     def _deliver(self, execution_id: str, delivery: dict[str, Any]) -> dict[str, Any]:

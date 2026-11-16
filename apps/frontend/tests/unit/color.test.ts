@@ -7,7 +7,7 @@ import {
 } from "../../src/lib/color.ts";
 import { coverArt } from "../../src/lib/cover.ts";
 import { genreName } from "../../src/lib/text.ts";
-import { listenersToReach, reachToListeners } from "../../src/state/draft.ts";
+import { reachBounds } from "../../src/state/draft.ts";
 
 describe("room colour", () => {
   const seeds = Array.from({ length: 400 }, (_, i) => `album ${i}\u0000artist`);
@@ -68,17 +68,9 @@ describe("names and scales", () => {
     expect(genreName("Madchester")).toBe("Madchester");
   });
 
-  test("传播度 maps onto three inclusive listener bands", () => {
-    expect(reachToListeners(0)).toEqual({ min: 0, max: 100 });
-    expect(reachToListeners(1)).toEqual({ min: 3, max: 103 });
-    expect(reachToListeners(40)).toEqual({ min: 100, max: 200 });
-    expect(reachToListeners(41)).toEqual({ min: 223, max: 273 });
-    expect(reachToListeners(70)).toEqual({ min: 310, max: 360 });
-    expect(reachToListeners(71)).toEqual({ min: 442 });
-    expect(reachToListeners(100)).toEqual({ min: 500 });
-    for (let reach = 0; reach <= 100; reach++) {
-      expect(listenersToReach(reachToListeners(reach).min)).toBe(reach);
-    }
-    expect(listenersToReach(5000)).toBe(100);
+  test("传播度 keeps nominal bounds inside the slider", () => {
+    expect(reachBounds(0)).toEqual({ min: 0, max: 10 });
+    expect(reachBounds(50)).toEqual({ min: 40, max: 60 });
+    expect(reachBounds(100)).toEqual({ min: 90, max: 100 });
   });
 });

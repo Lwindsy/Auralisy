@@ -1,5 +1,5 @@
 {
-  "product_revision": "0.20",
-  "schema_sha256": "a29d1be791a7fbfd6de555d6f801865480835f1dbaeca6f0ae7f4e409d4ef4c0",
-  "openapi_sha256": "92e1c65fbbd68255bb7b95e79f3e62bea1d2f4f60550bc703da0a2d41973468d"
+  "product_revision": "0.22",
+  "schema_sha256": "a32c9df546c0fa3b89a90bb3238dd663bc25e383c70ebd1356fb31f20627ed83",
+  "openapi_sha256": "a1a2beaf34e60a1663cf8a5c1d76a13583789f4248b684e6674d2209b3faf3bb"
 }

@@ -12,11 +12,7 @@ import type {
   GenreNode,
   Strength,
 } from "../../api/types.ts";
-import {
-  draftFrom,
-  reachToListeners,
-  type EntryDraft,
-} from "../../state/draft.ts";
+import { draftFrom, type EntryDraft } from "../../state/draft.ts";
 import {
   MAX_ALBUMS,
   MAX_TEXT,
@@ -241,10 +237,9 @@ export function Entry({
   const submit = () => {
     if (locked || !canSubmit) return;
     const input = structuredClone(draft);
-    const { min, max } = reachToListeners(form.reach);
-    input.audience_min_listeners = min;
-    if (max === undefined) delete input.audience_max_listeners;
-    else input.audience_max_listeners = max;
+    input.audience_reach_percent = form.reach;
+    delete input.audience_min_listeners;
+    delete input.audience_max_listeners;
     onSubmit(input);
   };
 

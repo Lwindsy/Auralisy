@@ -29,6 +29,7 @@ umask 077
 "${compose[@]}" exec -T database pg_dump -U postgres -d auralis_core -Fc > "$backup"
 "${compose[@]}" run --rm migrate
 sql 'GRANT USAGE ON SCHEMA catalog,ingestion,statistics,discovery TO auralis_online; GRANT SELECT ON ALL TABLES IN SCHEMA catalog,ingestion,statistics TO auralis_online; GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA discovery TO auralis_online; GRANT SELECT ON public.flyway_schema_history TO auralis_online; REVOKE INSERT,UPDATE,DELETE ON discovery.audience_snapshot,discovery.audience_count FROM auralis_online;'
+"${compose[@]}" run --rm prepare-reach
 "${compose[@]}" up -d python java
 ready=false
 for i in $(seq 1 120); do

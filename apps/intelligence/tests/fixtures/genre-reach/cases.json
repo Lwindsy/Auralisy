@@ -1,0 +1,986 @@
+[
+  {
+    "genres": [
+      "rock",
+      "post-rock",
+      "jazz"
+    ],
+    "preferences": {
+      "tags": [
+        {
+          "id": "rock",
+          "weight": 4,
+          "strength": "normal",
+          "focused": false
+        }
+      ]
+    },
+    "policy": {
+      "audience_reach_percent": 0,
+      "audience_reach_index_digest": "sha256:3c38a1927f833ea018d335979ee2e0c92c62f5b8be25664b74b4816e026001b4",
+      "audience_binding": {
+        "dataset_id": "core:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "window": "0",
+        "sample_listeners": 1000,
+        "snapshot_digest": "sha256:beabfc65a76fe691ea3beee1b4cc3c6affee81965405f28e8f88f8b05504996b"
+      },
+      "recall": {
+        "weights": {
+          "special": 2,
+          "focus": 2
+        }
+      }
+    },
+    "expected": {
+      "index_digest": "sha256:3c38a1927f833ea018d335979ee2e0c92c62f5b8be25664b74b4816e026001b4",
+      "genre_id": "rock",
+      "mode": "NORMAL",
+      "requested_percent": 0,
+      "minimum": 20,
+      "maximum": 110
+    }
+  },
+  {
+    "genres": [
+      "rock",
+      "post-rock",
+      "jazz"
+    ],
+    "preferences": {
+      "tags": [
+        {
+          "id": "rock",
+          "weight": 4,
+          "strength": "normal",
+          "focused": false
+        }
+      ]
+    },
+    "policy": {
+      "audience_reach_percent": 50,
+      "audience_reach_index_digest": "sha256:3c38a1927f833ea018d335979ee2e0c92c62f5b8be25664b74b4816e026001b4",
+      "audience_binding": {
+        "dataset_id": "core:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "window": "0",
+        "sample_listeners": 1000,
+        "snapshot_digest": "sha256:beabfc65a76fe691ea3beee1b4cc3c6affee81965405f28e8f88f8b05504996b"
+      },
+      "recall": {
+        "weights": {
+          "special": 2,
+          "focus": 2
+        }
+      }
+    },
+    "expected": {
+      "index_digest": "sha256:3c38a1927f833ea018d335979ee2e0c92c62f5b8be25664b74b4816e026001b4",
+      "genre_id": "rock",
+      "mode": "NORMAL",
+      "requested_percent": 50,
+      "minimum": 40,
+      "maximum": 130
+    }
+  },
+  {
+    "genres": [
+      "rock",
+      "post-rock",
+      "jazz"
+    ],
+    "preferences": {
+      "tags": [
+        {
+          "id": "rock",
+          "weight": 4,
+          "strength": "normal",
+          "focused": false
+        }
+      ]
+    },
+    "policy": {
+      "audience_reach_percent": 100,
+      "audience_reach_index_digest": "sha256:3c38a1927f833ea018d335979ee2e0c92c62f5b8be25664b74b4816e026001b4",
+      "audience_binding": {
+        "dataset_id": "core:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "window": "0",
+        "sample_listeners": 1000,
+        "snapshot_digest": "sha256:beabfc65a76fe691ea3beee1b4cc3c6affee81965405f28e8f88f8b05504996b"
+      },
+      "recall": {
+        "weights": {
+          "special": 2,
+          "focus": 2
+        }
+      }
+    },
+    "expected": {
+      "index_digest": "sha256:3c38a1927f833ea018d335979ee2e0c92c62f5b8be25664b74b4816e026001b4",
+      "genre_id": "rock",
+      "mode": "NORMAL",
+      "requested_percent": 100,
+      "minimum": 120,
+      "maximum": null
+    }
+  },
+  {
+    "genres": [
+      "rock",
+      "post-rock",
+      "jazz"
+    ],
+    "preferences": {
+      "tags": [
+        {
+          "id": "rock",
+          "weight": 4,
+          "strength": "normal",
+          "focused": false
+        },
+        {
+          "id": "post-rock",
+          "weight": 1,
+          "strength": "normal",
+          "focused": false
+        }
+      ]
+    },
+    "policy": {
+      "audience_reach_percent": 0,
+      "audience_reach_index_digest": "sha256:3c38a1927f833ea018d335979ee2e0c92c62f5b8be25664b74b4816e026001b4",
+      "audience_binding": {
+        "dataset_id": "core:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "window": "0",
+        "sample_listeners": 1000,
+        "snapshot_digest": "sha256:beabfc65a76fe691ea3beee1b4cc3c6affee81965405f28e8f88f8b05504996b"
+      },
+      "recall": {
+        "weights": {
+          "special": 2,
+          "focus": 2
+        }
+      }
+    },
+    "expected": {
+      "index_digest": "sha256:3c38a1927f833ea018d335979ee2e0c92c62f5b8be25664b74b4816e026001b4",
+      "genre_id": "post-rock",
+      "mode": "NORMAL",
+      "requested_percent": 0,
+      "minimum": 20,
+      "maximum": 110
+    }
+  },
+  {
+    "genres": [
+      "rock",
+      "post-rock",
+      "jazz"
+    ],
+    "preferences": {
+      "tags": [
+        {
+          "id": "rock",
+          "weight": 4,
+          "strength": "normal",
+          "focused": false
+        },
+        {
+          "id": "post-rock",
+          "weight": 1,
+          "strength": "normal",
+          "focused": false
+        }
+      ]
+    },
+    "policy": {
+      "audience_reach_percent": 50,
+      "audience_reach_index_digest": "sha256:3c38a1927f833ea018d335979ee2e0c92c62f5b8be25664b74b4816e026001b4",
+      "audience_binding": {
+        "dataset_id": "core:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "window": "0",
+        "sample_listeners": 1000,
+        "snapshot_digest": "sha256:beabfc65a76fe691ea3beee1b4cc3c6affee81965405f28e8f88f8b05504996b"
+      },
+      "recall": {
+        "weights": {
+          "special": 2,
+          "focus": 2
+        }
+      }
+    },
+    "expected": {
+      "index_digest": "sha256:3c38a1927f833ea018d335979ee2e0c92c62f5b8be25664b74b4816e026001b4",
+      "genre_id": "post-rock",
+      "mode": "NORMAL",
+      "requested_percent": 50,
+      "minimum": 40,
+      "maximum": 130
+    }
+  },
+  {
+    "genres": [
+      "rock",
+      "post-rock",
+      "jazz"
+    ],
+    "preferences": {
+      "tags": [
+        {
+          "id": "rock",
+          "weight": 4,
+          "strength": "normal",
+          "focused": false
+        },
+        {
+          "id": "post-rock",
+          "weight": 1,
+          "strength": "normal",
+          "focused": false
+        }
+      ]
+    },
+    "policy": {
+      "audience_reach_percent": 100,
+      "audience_reach_index_digest": "sha256:3c38a1927f833ea018d335979ee2e0c92c62f5b8be25664b74b4816e026001b4",
+      "audience_binding": {
+        "dataset_id": "core:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "window": "0",
+        "sample_listeners": 1000,
+        "snapshot_digest": "sha256:beabfc65a76fe691ea3beee1b4cc3c6affee81965405f28e8f88f8b05504996b"
+      },
+      "recall": {
+        "weights": {
+          "special": 2,
+          "focus": 2
+        }
+      }
+    },
+    "expected": {
+      "index_digest": "sha256:3c38a1927f833ea018d335979ee2e0c92c62f5b8be25664b74b4816e026001b4",
+      "genre_id": "post-rock",
+      "mode": "NORMAL",
+      "requested_percent": 100,
+      "minimum": 120,
+      "maximum": null
+    }
+  },
+  {
+    "genres": [
+      "rock",
+      "post-rock",
+      "jazz"
+    ],
+    "preferences": {
+      "tags": [
+        {
+          "id": "jazz",
+          "weight": 4,
+          "strength": "normal",
+          "focused": false
+        },
+        {
+          "id": "post-rock",
+          "weight": 1,
+          "strength": "normal",
+          "focused": false
+        }
+      ]
+    },
+    "policy": {
+      "audience_reach_percent": 0,
+      "audience_reach_index_digest": "sha256:3c38a1927f833ea018d335979ee2e0c92c62f5b8be25664b74b4816e026001b4",
+      "audience_binding": {
+        "dataset_id": "core:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "window": "0",
+        "sample_listeners": 1000,
+        "snapshot_digest": "sha256:beabfc65a76fe691ea3beee1b4cc3c6affee81965405f28e8f88f8b05504996b"
+      },
+      "recall": {
+        "weights": {
+          "special": 2,
+          "focus": 2
+        }
+      }
+    },
+    "expected": {
+      "index_digest": "sha256:3c38a1927f833ea018d335979ee2e0c92c62f5b8be25664b74b4816e026001b4",
+      "genre_id": "jazz",
+      "mode": "NORMAL",
+      "requested_percent": 0,
+      "minimum": 20,
+      "maximum": 110
+    }
+  },
+  {
+    "genres": [
+      "rock",
+      "post-rock",
+      "jazz"
+    ],
+    "preferences": {
+      "tags": [
+        {
+          "id": "jazz",
+          "weight": 4,
+          "strength": "normal",
+          "focused": false
+        },
+        {
+          "id": "post-rock",
+          "weight": 1,
+          "strength": "normal",
+          "focused": false
+        }
+      ]
+    },
+    "policy": {
+      "audience_reach_percent": 50,
+      "audience_reach_index_digest": "sha256:3c38a1927f833ea018d335979ee2e0c92c62f5b8be25664b74b4816e026001b4",
+      "audience_binding": {
+        "dataset_id": "core:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "window": "0",
+        "sample_listeners": 1000,
+        "snapshot_digest": "sha256:beabfc65a76fe691ea3beee1b4cc3c6affee81965405f28e8f88f8b05504996b"
+      },
+      "recall": {
+        "weights": {
+          "special": 2,
+          "focus": 2
+        }
+      }
+    },
+    "expected": {
+      "index_digest": "sha256:3c38a1927f833ea018d335979ee2e0c92c62f5b8be25664b74b4816e026001b4",
+      "genre_id": "jazz",
+      "mode": "NORMAL",
+      "requested_percent": 50,
+      "minimum": 40,
+      "maximum": 130
+    }
+  },
+  {
+    "genres": [
+      "rock",
+      "post-rock",
+      "jazz"
+    ],
+    "preferences": {
+      "tags": [
+        {
+          "id": "jazz",
+          "weight": 4,
+          "strength": "normal",
+          "focused": false
+        },
+        {
+          "id": "post-rock",
+          "weight": 1,
+          "strength": "normal",
+          "focused": false
+        }
+      ]
+    },
+    "policy": {
+      "audience_reach_percent": 100,
+      "audience_reach_index_digest": "sha256:3c38a1927f833ea018d335979ee2e0c92c62f5b8be25664b74b4816e026001b4",
+      "audience_binding": {
+        "dataset_id": "core:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "window": "0",
+        "sample_listeners": 1000,
+        "snapshot_digest": "sha256:beabfc65a76fe691ea3beee1b4cc3c6affee81965405f28e8f88f8b05504996b"
+      },
+      "recall": {
+        "weights": {
+          "special": 2,
+          "focus": 2
+        }
+      }
+    },
+    "expected": {
+      "index_digest": "sha256:3c38a1927f833ea018d335979ee2e0c92c62f5b8be25664b74b4816e026001b4",
+      "genre_id": "jazz",
+      "mode": "NORMAL",
+      "requested_percent": 100,
+      "minimum": 120,
+      "maximum": null
+    }
+  },
+  {
+    "genres": [
+      "rock",
+      "post-rock"
+    ],
+    "preferences": {
+      "tags": []
+    },
+    "policy": {
+      "audience_reach_percent": 0,
+      "audience_reach_index_digest": "sha256:3c38a1927f833ea018d335979ee2e0c92c62f5b8be25664b74b4816e026001b4",
+      "audience_binding": {
+        "dataset_id": "core:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "window": "0",
+        "sample_listeners": 1000,
+        "snapshot_digest": "sha256:beabfc65a76fe691ea3beee1b4cc3c6affee81965405f28e8f88f8b05504996b"
+      },
+      "recall": {
+        "weights": {
+          "special": 2,
+          "focus": 2
+        }
+      }
+    },
+    "expected": {
+      "index_digest": "sha256:3c38a1927f833ea018d335979ee2e0c92c62f5b8be25664b74b4816e026001b4",
+      "genre_id": "post-rock",
+      "mode": "NORMAL",
+      "requested_percent": 0,
+      "minimum": 20,
+      "maximum": 110
+    }
+  },
+  {
+    "genres": [
+      "rock",
+      "post-rock"
+    ],
+    "preferences": {
+      "tags": []
+    },
+    "policy": {
+      "audience_reach_percent": 50,
+      "audience_reach_index_digest": "sha256:3c38a1927f833ea018d335979ee2e0c92c62f5b8be25664b74b4816e026001b4",
+      "audience_binding": {
+        "dataset_id": "core:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "window": "0",
+        "sample_listeners": 1000,
+        "snapshot_digest": "sha256:beabfc65a76fe691ea3beee1b4cc3c6affee81965405f28e8f88f8b05504996b"
+      },
+      "recall": {
+        "weights": {
+          "special": 2,
+          "focus": 2
+        }
+      }
+    },
+    "expected": {
+      "index_digest": "sha256:3c38a1927f833ea018d335979ee2e0c92c62f5b8be25664b74b4816e026001b4",
+      "genre_id": "post-rock",
+      "mode": "NORMAL",
+      "requested_percent": 50,
+      "minimum": 40,
+      "maximum": 130
+    }
+  },
+  {
+    "genres": [
+      "rock",
+      "post-rock"
+    ],
+    "preferences": {
+      "tags": []
+    },
+    "policy": {
+      "audience_reach_percent": 100,
+      "audience_reach_index_digest": "sha256:3c38a1927f833ea018d335979ee2e0c92c62f5b8be25664b74b4816e026001b4",
+      "audience_binding": {
+        "dataset_id": "core:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "window": "0",
+        "sample_listeners": 1000,
+        "snapshot_digest": "sha256:beabfc65a76fe691ea3beee1b4cc3c6affee81965405f28e8f88f8b05504996b"
+      },
+      "recall": {
+        "weights": {
+          "special": 2,
+          "focus": 2
+        }
+      }
+    },
+    "expected": {
+      "index_digest": "sha256:3c38a1927f833ea018d335979ee2e0c92c62f5b8be25664b74b4816e026001b4",
+      "genre_id": "post-rock",
+      "mode": "NORMAL",
+      "requested_percent": 100,
+      "minimum": 120,
+      "maximum": null
+    }
+  },
+  {
+    "genres": [
+      "zero"
+    ],
+    "preferences": {
+      "tags": []
+    },
+    "policy": {
+      "audience_reach_percent": 0,
+      "audience_reach_index_digest": "sha256:3c38a1927f833ea018d335979ee2e0c92c62f5b8be25664b74b4816e026001b4",
+      "audience_binding": {
+        "dataset_id": "core:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "window": "0",
+        "sample_listeners": 1000,
+        "snapshot_digest": "sha256:beabfc65a76fe691ea3beee1b4cc3c6affee81965405f28e8f88f8b05504996b"
+      },
+      "recall": {
+        "weights": {
+          "special": 2,
+          "focus": 2
+        }
+      }
+    },
+    "expected": {
+      "index_digest": "sha256:3c38a1927f833ea018d335979ee2e0c92c62f5b8be25664b74b4816e026001b4",
+      "genre_id": "zero",
+      "mode": "DIRECT",
+      "requested_percent": 0,
+      "minimum": 0,
+      "maximum": null
+    }
+  },
+  {
+    "genres": [
+      "zero"
+    ],
+    "preferences": {
+      "tags": []
+    },
+    "policy": {
+      "audience_reach_percent": 50,
+      "audience_reach_index_digest": "sha256:3c38a1927f833ea018d335979ee2e0c92c62f5b8be25664b74b4816e026001b4",
+      "audience_binding": {
+        "dataset_id": "core:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "window": "0",
+        "sample_listeners": 1000,
+        "snapshot_digest": "sha256:beabfc65a76fe691ea3beee1b4cc3c6affee81965405f28e8f88f8b05504996b"
+      },
+      "recall": {
+        "weights": {
+          "special": 2,
+          "focus": 2
+        }
+      }
+    },
+    "expected": {
+      "index_digest": "sha256:3c38a1927f833ea018d335979ee2e0c92c62f5b8be25664b74b4816e026001b4",
+      "genre_id": "zero",
+      "mode": "DIRECT",
+      "requested_percent": 50,
+      "minimum": 0,
+      "maximum": null
+    }
+  },
+  {
+    "genres": [
+      "zero"
+    ],
+    "preferences": {
+      "tags": []
+    },
+    "policy": {
+      "audience_reach_percent": 100,
+      "audience_reach_index_digest": "sha256:3c38a1927f833ea018d335979ee2e0c92c62f5b8be25664b74b4816e026001b4",
+      "audience_binding": {
+        "dataset_id": "core:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "window": "0",
+        "sample_listeners": 1000,
+        "snapshot_digest": "sha256:beabfc65a76fe691ea3beee1b4cc3c6affee81965405f28e8f88f8b05504996b"
+      },
+      "recall": {
+        "weights": {
+          "special": 2,
+          "focus": 2
+        }
+      }
+    },
+    "expected": {
+      "index_digest": "sha256:3c38a1927f833ea018d335979ee2e0c92c62f5b8be25664b74b4816e026001b4",
+      "genre_id": "zero",
+      "mode": "DIRECT",
+      "requested_percent": 100,
+      "minimum": 0,
+      "maximum": null
+    }
+  },
+  {
+    "genres": [
+      "flat"
+    ],
+    "preferences": {
+      "tags": []
+    },
+    "policy": {
+      "audience_reach_percent": 0,
+      "audience_reach_index_digest": "sha256:3c38a1927f833ea018d335979ee2e0c92c62f5b8be25664b74b4816e026001b4",
+      "audience_binding": {
+        "dataset_id": "core:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "window": "0",
+        "sample_listeners": 1000,
+        "snapshot_digest": "sha256:beabfc65a76fe691ea3beee1b4cc3c6affee81965405f28e8f88f8b05504996b"
+      },
+      "recall": {
+        "weights": {
+          "special": 2,
+          "focus": 2
+        }
+      }
+    },
+    "expected": {
+      "index_digest": "sha256:3c38a1927f833ea018d335979ee2e0c92c62f5b8be25664b74b4816e026001b4",
+      "genre_id": "flat",
+      "mode": "DIRECT",
+      "requested_percent": 0,
+      "minimum": 0,
+      "maximum": null
+    }
+  },
+  {
+    "genres": [
+      "flat"
+    ],
+    "preferences": {
+      "tags": []
+    },
+    "policy": {
+      "audience_reach_percent": 50,
+      "audience_reach_index_digest": "sha256:3c38a1927f833ea018d335979ee2e0c92c62f5b8be25664b74b4816e026001b4",
+      "audience_binding": {
+        "dataset_id": "core:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "window": "0",
+        "sample_listeners": 1000,
+        "snapshot_digest": "sha256:beabfc65a76fe691ea3beee1b4cc3c6affee81965405f28e8f88f8b05504996b"
+      },
+      "recall": {
+        "weights": {
+          "special": 2,
+          "focus": 2
+        }
+      }
+    },
+    "expected": {
+      "index_digest": "sha256:3c38a1927f833ea018d335979ee2e0c92c62f5b8be25664b74b4816e026001b4",
+      "genre_id": "flat",
+      "mode": "DIRECT",
+      "requested_percent": 50,
+      "minimum": 0,
+      "maximum": null
+    }
+  },
+  {
+    "genres": [
+      "flat"
+    ],
+    "preferences": {
+      "tags": []
+    },
+    "policy": {
+      "audience_reach_percent": 100,
+      "audience_reach_index_digest": "sha256:3c38a1927f833ea018d335979ee2e0c92c62f5b8be25664b74b4816e026001b4",
+      "audience_binding": {
+        "dataset_id": "core:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "window": "0",
+        "sample_listeners": 1000,
+        "snapshot_digest": "sha256:beabfc65a76fe691ea3beee1b4cc3c6affee81965405f28e8f88f8b05504996b"
+      },
+      "recall": {
+        "weights": {
+          "special": 2,
+          "focus": 2
+        }
+      }
+    },
+    "expected": {
+      "index_digest": "sha256:3c38a1927f833ea018d335979ee2e0c92c62f5b8be25664b74b4816e026001b4",
+      "genre_id": "flat",
+      "mode": "DIRECT",
+      "requested_percent": 100,
+      "minimum": 0,
+      "maximum": null
+    }
+  },
+  {
+    "genres": [
+      "sparse"
+    ],
+    "preferences": {
+      "tags": []
+    },
+    "policy": {
+      "audience_reach_percent": 0,
+      "audience_reach_index_digest": "sha256:3c38a1927f833ea018d335979ee2e0c92c62f5b8be25664b74b4816e026001b4",
+      "audience_binding": {
+        "dataset_id": "core:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "window": "0",
+        "sample_listeners": 1000,
+        "snapshot_digest": "sha256:beabfc65a76fe691ea3beee1b4cc3c6affee81965405f28e8f88f8b05504996b"
+      },
+      "recall": {
+        "weights": {
+          "special": 2,
+          "focus": 2
+        }
+      }
+    },
+    "expected": {
+      "index_digest": "sha256:3c38a1927f833ea018d335979ee2e0c92c62f5b8be25664b74b4816e026001b4",
+      "genre_id": "sparse",
+      "mode": "DIRECT",
+      "requested_percent": 0,
+      "minimum": 0,
+      "maximum": null
+    }
+  },
+  {
+    "genres": [
+      "sparse"
+    ],
+    "preferences": {
+      "tags": []
+    },
+    "policy": {
+      "audience_reach_percent": 50,
+      "audience_reach_index_digest": "sha256:3c38a1927f833ea018d335979ee2e0c92c62f5b8be25664b74b4816e026001b4",
+      "audience_binding": {
+        "dataset_id": "core:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "window": "0",
+        "sample_listeners": 1000,
+        "snapshot_digest": "sha256:beabfc65a76fe691ea3beee1b4cc3c6affee81965405f28e8f88f8b05504996b"
+      },
+      "recall": {
+        "weights": {
+          "special": 2,
+          "focus": 2
+        }
+      }
+    },
+    "expected": {
+      "index_digest": "sha256:3c38a1927f833ea018d335979ee2e0c92c62f5b8be25664b74b4816e026001b4",
+      "genre_id": "sparse",
+      "mode": "DIRECT",
+      "requested_percent": 50,
+      "minimum": 0,
+      "maximum": null
+    }
+  },
+  {
+    "genres": [
+      "sparse"
+    ],
+    "preferences": {
+      "tags": []
+    },
+    "policy": {
+      "audience_reach_percent": 100,
+      "audience_reach_index_digest": "sha256:3c38a1927f833ea018d335979ee2e0c92c62f5b8be25664b74b4816e026001b4",
+      "audience_binding": {
+        "dataset_id": "core:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "window": "0",
+        "sample_listeners": 1000,
+        "snapshot_digest": "sha256:beabfc65a76fe691ea3beee1b4cc3c6affee81965405f28e8f88f8b05504996b"
+      },
+      "recall": {
+        "weights": {
+          "special": 2,
+          "focus": 2
+        }
+      }
+    },
+    "expected": {
+      "index_digest": "sha256:3c38a1927f833ea018d335979ee2e0c92c62f5b8be25664b74b4816e026001b4",
+      "genre_id": "sparse",
+      "mode": "DIRECT",
+      "requested_percent": 100,
+      "minimum": 0,
+      "maximum": null
+    }
+  },
+  {
+    "genres": [
+      "empty"
+    ],
+    "preferences": {
+      "tags": []
+    },
+    "policy": {
+      "audience_reach_percent": 0,
+      "audience_reach_index_digest": "sha256:3c38a1927f833ea018d335979ee2e0c92c62f5b8be25664b74b4816e026001b4",
+      "audience_binding": {
+        "dataset_id": "core:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "window": "0",
+        "sample_listeners": 1000,
+        "snapshot_digest": "sha256:beabfc65a76fe691ea3beee1b4cc3c6affee81965405f28e8f88f8b05504996b"
+      },
+      "recall": {
+        "weights": {
+          "special": 2,
+          "focus": 2
+        }
+      }
+    },
+    "expected": null
+  },
+  {
+    "genres": [
+      "empty"
+    ],
+    "preferences": {
+      "tags": []
+    },
+    "policy": {
+      "audience_reach_percent": 50,
+      "audience_reach_index_digest": "sha256:3c38a1927f833ea018d335979ee2e0c92c62f5b8be25664b74b4816e026001b4",
+      "audience_binding": {
+        "dataset_id": "core:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "window": "0",
+        "sample_listeners": 1000,
+        "snapshot_digest": "sha256:beabfc65a76fe691ea3beee1b4cc3c6affee81965405f28e8f88f8b05504996b"
+      },
+      "recall": {
+        "weights": {
+          "special": 2,
+          "focus": 2
+        }
+      }
+    },
+    "expected": null
+  },
+  {
+    "genres": [
+      "empty"
+    ],
+    "preferences": {
+      "tags": []
+    },
+    "policy": {
+      "audience_reach_percent": 100,
+      "audience_reach_index_digest": "sha256:3c38a1927f833ea018d335979ee2e0c92c62f5b8be25664b74b4816e026001b4",
+      "audience_binding": {
+        "dataset_id": "core:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "window": "0",
+        "sample_listeners": 1000,
+        "snapshot_digest": "sha256:beabfc65a76fe691ea3beee1b4cc3c6affee81965405f28e8f88f8b05504996b"
+      },
+      "recall": {
+        "weights": {
+          "special": 2,
+          "focus": 2
+        }
+      }
+    },
+    "expected": null
+  },
+  {
+    "genres": [
+      "post-rock"
+    ],
+    "preferences": {
+      "tags": [
+        {
+          "id": "navigation",
+          "weight": 1,
+          "strength": "normal",
+          "focused": false
+        }
+      ]
+    },
+    "policy": {
+      "audience_reach_percent": 0,
+      "audience_reach_index_digest": "sha256:3c38a1927f833ea018d335979ee2e0c92c62f5b8be25664b74b4816e026001b4",
+      "audience_binding": {
+        "dataset_id": "core:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "window": "0",
+        "sample_listeners": 1000,
+        "snapshot_digest": "sha256:beabfc65a76fe691ea3beee1b4cc3c6affee81965405f28e8f88f8b05504996b"
+      },
+      "recall": {
+        "weights": {
+          "special": 2,
+          "focus": 2
+        }
+      }
+    },
+    "expected": {
+      "index_digest": "sha256:3c38a1927f833ea018d335979ee2e0c92c62f5b8be25664b74b4816e026001b4",
+      "genre_id": "navigation",
+      "mode": "NORMAL",
+      "requested_percent": 0,
+      "minimum": 20,
+      "maximum": 110
+    }
+  },
+  {
+    "genres": [
+      "post-rock"
+    ],
+    "preferences": {
+      "tags": [
+        {
+          "id": "navigation",
+          "weight": 1,
+          "strength": "normal",
+          "focused": false
+        }
+      ]
+    },
+    "policy": {
+      "audience_reach_percent": 50,
+      "audience_reach_index_digest": "sha256:3c38a1927f833ea018d335979ee2e0c92c62f5b8be25664b74b4816e026001b4",
+      "audience_binding": {
+        "dataset_id": "core:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "window": "0",
+        "sample_listeners": 1000,
+        "snapshot_digest": "sha256:beabfc65a76fe691ea3beee1b4cc3c6affee81965405f28e8f88f8b05504996b"
+      },
+      "recall": {
+        "weights": {
+          "special": 2,
+          "focus": 2
+        }
+      }
+    },
+    "expected": {
+      "index_digest": "sha256:3c38a1927f833ea018d335979ee2e0c92c62f5b8be25664b74b4816e026001b4",
+      "genre_id": "navigation",
+      "mode": "NORMAL",
+      "requested_percent": 50,
+      "minimum": 40,
+      "maximum": 130
+    }
+  },
+  {
+    "genres": [
+      "post-rock"
+    ],
+    "preferences": {
+      "tags": [
+        {
+          "id": "navigation",
+          "weight": 1,
+          "strength": "normal",
+          "focused": false
+        }
+      ]
+    },
+    "policy": {
+      "audience_reach_percent": 100,
+      "audience_reach_index_digest": "sha256:3c38a1927f833ea018d335979ee2e0c92c62f5b8be25664b74b4816e026001b4",
+      "audience_binding": {
+        "dataset_id": "core:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "window": "0",
+        "sample_listeners": 1000,
+        "snapshot_digest": "sha256:beabfc65a76fe691ea3beee1b4cc3c6affee81965405f28e8f88f8b05504996b"
+      },
+      "recall": {
+        "weights": {
+          "special": 2,
+          "focus": 2
+        }
+      }
+    },
+    "expected": {
+      "index_digest": "sha256:3c38a1927f833ea018d335979ee2e0c92c62f5b8be25664b74b4816e026001b4",
+      "genre_id": "navigation",
+      "mode": "NORMAL",
+      "requested_percent": 100,
+      "minimum": 120,
+      "maximum": null
+    }
+  }
+]

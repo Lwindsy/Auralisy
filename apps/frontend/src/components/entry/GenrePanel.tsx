@@ -565,7 +565,9 @@ function GenreRow({
           onFocus={onFocus}
           onBlur={hover.hide}
           onClick={(event) => {
-            if (handlers.onPick(node) && node.has_children) setExpanded(true);
+            if (node.selectable === false) setExpanded((value) => !value);
+            else if (handlers.onPick(node) && node.has_children)
+              setExpanded(true);
             if (touched.current)
               hover.peek(node, parent, anchorOf(event.currentTarget));
           }}
@@ -579,7 +581,7 @@ function GenreRow({
             aria-pressed={liked}
             aria-label={words.likeName(name)}
             title={words.like}
-            disabled={handlers.locked}
+            disabled={handlers.locked || node.selectable === false}
             onClick={() => handlers.onToggleLike(node)}
           >
             <Icon name="heart" size={14} filled={liked} />
@@ -590,7 +592,7 @@ function GenreRow({
             aria-pressed={disliked}
             aria-label={words.dislikeName(name)}
             title={words.dislike}
-            disabled={handlers.locked}
+            disabled={handlers.locked || node.selectable === false}
             onClick={() => handlers.onToggleDislike(node)}
           >
             <Icon name="ban" size={14} />
