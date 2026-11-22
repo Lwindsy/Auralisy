@@ -7447,6 +7447,16 @@
         "cover_url": {
           "type": "string",
           "format": "uri-reference"
+        },
+        "secondary_types": {
+          "type": ["array", "null"],
+          "items": { "type": "string", "minLength": 1 },
+          "description": "核心目录的 MusicBrainz 副类型英文名，按名称排序。空数组表示没有登记副类型；库外作品为 null。"
+        },
+        "disambiguation": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "description": "核心目录的 MusicBrainz 非空消歧注释原文。无注释或库外作品为 null。"
         }
       },
       "required": [

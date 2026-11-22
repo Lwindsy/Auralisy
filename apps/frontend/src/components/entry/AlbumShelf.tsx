@@ -8,7 +8,7 @@ import {
 import type { Api } from "../../api/client.ts";
 import { message } from "../../api/messages.ts";
 import type { AlbumSearchResult, CatalogAlbum } from "../../api/types.ts";
-import { useCopy } from "../../i18n/index.ts";
+import { i18n, useCopy } from "../../i18n/index.ts";
 import { coverUrl } from "../../state/covers.ts";
 import { albumSeed } from "../../lib/cover.ts";
 import { useDebounced } from "../../state/hooks.ts";
@@ -18,13 +18,14 @@ import { Cover } from "../Cover.tsx";
 import { Icon } from "../Icon.tsx";
 import { QuietScroll } from "../QuietScroll.tsx";
 import { SearchField } from "./SearchField.tsx";
+import { albumSearchLabels } from "./albumSearchLabels.ts";
 import { usePaged } from "./usePaged.ts";
 
 /**
  * Album search as a crate of sleeves: a grid four across that scrolls downwards, like a
- * streaming library. Each sleeve shows the title, the artist and the year in separate
- * lines, all in full. Sleeves lift and catch light under the pointer; adding one stamps it
- * with a check. The next page loads before the end of the list comes into view.
+ * streaming library. Each sleeve shows the title, the artist and edition details.
+ * Sleeves lift under the pointer. Adding one stamps it with a check.
+ * The next page loads before the end of the list comes into view.
  */
 export function AlbumShelf({
   api,
@@ -136,13 +137,12 @@ export function AlbumShelf({
             >
               {pages.items.map((album, index) => {
                 const id = album.mb_release_group_id;
-                const {
-                  title,
-                  artist_credit,
-                  first_release_year,
-                  release_type,
-                } = album.identity;
-                const name = `${title} — ${artist_credit}`;
+                const { title, artist_credit } = album.identity;
+                const { details, name } = albumSearchLabels(
+                  album,
+                  i18n.locale,
+                  words.yearUnknown,
+                );
                 const added = selected.has(id);
                 return (
                   <li
@@ -172,10 +172,7 @@ export function AlbumShelf({
                       </span>
                       <span className="sleeve__title">{title}</span>
                       <span className="sleeve__artist">{artist_credit}</span>
-                      <span className="sleeve__year mono">
-                        {first_release_year ?? words.yearUnknown}
-                        {release_type ? ` · ${release_type}` : ""}
-                      </span>
+                      <span className="sleeve__year mono">{details}</span>
                     </button>
                   </li>
                 );

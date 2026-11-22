@@ -956,19 +956,27 @@ test("album shelf sends only MBID and marks; removal resets marks", async ({
   await attach(context, backend);
   await visit(page);
   const name = "Synthetic 外部专辑 — Synthetic Artist";
+  const edition = `${name} · 1988 · Album · 现场 · New type · Live at the venue`;
   await openDoor(page, /^专辑/);
   await page.getByLabel("查找专辑").fill("Synthetic");
   await page.getByLabel("查找专辑").press("Enter");
-  await page.getByRole("button", { name: `添加${name}`, exact: true }).click();
+  const result = page.getByRole("button", {
+    name: `添加${edition}`,
+    exact: true,
+  });
+  await expect(result.locator(".sleeve__year")).toHaveText(
+    "1988 · Album · 现场 · New type · Live at the venue",
+  );
+  await result.click();
   await expect(
-    page.getByRole("button", { name: `已添加${name}`, exact: true }),
+    page.getByRole("button", { name: `已添加${edition}`, exact: true }),
   ).toBeDisabled();
   await page.getByRole("button", { name: `${name}特别喜欢` }).click();
   await expect(
     page.getByRole("button", { name: `${name}特别喜欢` }),
   ).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("button", { name: `移除${name}` }).click();
-  await page.getByRole("button", { name: `添加${name}`, exact: true }).click();
+  await result.click();
   await expect(
     page.getByRole("button", { name: `${name}特别喜欢` }),
   ).toHaveAttribute("aria-pressed", "false");

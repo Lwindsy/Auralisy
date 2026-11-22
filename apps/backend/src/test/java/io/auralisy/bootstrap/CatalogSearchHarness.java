@@ -51,6 +51,12 @@ public final class CatalogSearchHarness implements AutoCloseable {
             s.execute(
                     "INSERT INTO catalog.genre VALUES(1,1,'33333333-3333-4333-8333-333333333333','Rock','')");
             s.execute("INSERT INTO catalog.genre_alias VALUES(1,1,1,'摇滚','摇滚','zh',NULL,true)");
+            s.execute(
+                    "INSERT INTO catalog.artist VALUES(1,1,'44444444-4444-4444-8444-444444444444','Test Artist','Test Artist','',NULL,now())");
+            s.execute(
+                    "INSERT INTO catalog.album(dataset_id,id,mbid,title,comment,source_credit_id,primary_type,first_year,source_updated) VALUES(1,1,'55555555-5555-4555-8555-555555555555','Test Edition','Original comment I',1,'Album',1988,now())");
+            s.execute("INSERT INTO catalog.album_credit VALUES(1,1,0,1,'Test Artist','')");
+            s.execute("INSERT INTO catalog.album_secondary_type VALUES(1,1,'Live')");
             s.execute("UPDATE ingestion.dataset SET status='ACTIVE' WHERE id=1");
             s.execute("INSERT INTO ingestion.active_dataset VALUES(true,1)");
         }

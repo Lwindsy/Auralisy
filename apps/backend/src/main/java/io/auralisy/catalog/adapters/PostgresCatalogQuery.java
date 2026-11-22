@@ -46,7 +46,7 @@ public class PostgresCatalogQuery implements CatalogQuery {
                 "WITH requested(id) AS (VALUES "
                         + values
                         + ") "
-                        + "SELECT r.id,a.mbid,a.title,a.first_year,a.primary_type,credits.name,types.names,genres.items,(direct.id IS NOT NULL AND red.album_id IS NOT NULL AND direct.id<>red.album_id) "
+                        + "SELECT r.id,a.mbid,a.title,a.first_year,a.primary_type,credits.name,types.names,genres.items,(direct.id IS NOT NULL AND red.album_id IS NOT NULL AND direct.id<>red.album_id),a.comment "
                         + "FROM requested r LEFT JOIN catalog.current_album_redirect red ON red.old_mbid=r.id "
                         + "LEFT JOIN catalog.current_album direct ON direct.mbid=r.id "
                         + "JOIN catalog.current_album a ON a.id=coalesce(direct.id,red.album_id) "
@@ -84,7 +84,8 @@ public class PostgresCatalogQuery implements CatalogQuery {
                                     typeArray == null
                                             ? List.of()
                                             : List.of((String[]) typeArray.getArray()),
-                                    genreList);
+                                    genreList,
+                                    rs.getString(10));
                     if (result.putIfAbsent(requestedId, album) != null
                             && !result.get(requestedId).equals(album))
                         throw new PersistenceRejected("AMBIGUOUS_REDIRECT");

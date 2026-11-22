@@ -1193,7 +1193,7 @@
   cursor: default;
 }
 
-/* Title, artist and year each get their own line and are shown in full. */
+/* Title, artist and edition details each get their own line. */
 .sleeve__title {
   margin-top: 4px;
   font-size: 14.5px;
@@ -1215,6 +1215,7 @@
   font-size: 11px;
   letter-spacing: 0.04em;
   color: var(--ink-40);
+  overflow-wrap: anywhere;
 }
 
 .sleeve--ghost {

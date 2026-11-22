@@ -64,6 +64,13 @@ export class Api {
     const route = routeTable[`${method} ${template}`];
     if (!route) throw new ApiError("UNKNOWN_OPERATION");
     if (route.request) validate(route.request, body);
+    if (
+      method === "GET" &&
+      (template === "/v1/catalog/albums" ||
+        template === "/v1/catalog/albums/{mb_release_group_id}")
+    ) {
+      query = { ...query, include_disambiguation: "true" };
+    }
     const path = template.replace(/\{([^}]+)\}/g, (_, name: string) =>
       encodeURIComponent(String(params[name])),
     );

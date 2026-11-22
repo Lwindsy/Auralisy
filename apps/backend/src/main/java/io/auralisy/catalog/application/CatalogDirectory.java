@@ -32,7 +32,7 @@ public final class CatalogDirectory {
         this.definitions = definitions;
     }
 
-    public JsonNode search(String query, int offset, int limit) {
+    public JsonNode search(String query, int offset, int limit, boolean includeDisambiguation) {
         page(query, offset, limit, true);
         long version = versions.current();
         var result = JSON.createObjectNode();
@@ -64,7 +64,7 @@ public final class CatalogDirectory {
                     next = cursor + i <= 10000 ? cursor + i : null;
                     break search;
                 }
-                items.add(album(candidate, core, admitted));
+                items.add(album(candidate, core, admitted, includeDisambiguation));
             }
             if (found.nextOffset() == null) break;
             cursor = found.nextOffset();
@@ -77,6 +77,10 @@ public final class CatalogDirectory {
     }
 
     public JsonNode resolve(UUID id) {
+        return resolve(id, false);
+    }
+
+    public JsonNode resolve(UUID id, boolean includeDisambiguation) {
         long version = versions.current();
         // Selection always uses a lookup, never trusts an earlier search row or browser labels.
         var external = remote.resolve(id);
@@ -84,7 +88,11 @@ public final class CatalogDirectory {
         var genreIds = new HashSet<String>();
         for (var g : external.genres()) genreIds.add(g.genreId());
         var value =
-                album(external, core, genres.nodes(version, genres.selectable(version, genreIds)));
+                album(
+                        external,
+                        core,
+                        genres.nodes(version, genres.selectable(version, genreIds)),
+                        includeDisambiguation);
         var input = JSON.createObjectNode().put("strength", "normal").put("focused", false);
         if (core != null) input.put("release_group_id", core.id().toString()).putNull("external");
         else {
@@ -147,7 +155,8 @@ public final class CatalogDirectory {
     private ObjectNode album(
             CatalogSearchPort.Album remote,
             CatalogQuery.Album core,
-            Map<String, GenreQuery.Node> admitted) {
+            Map<String, GenreQuery.Node> admitted,
+            boolean includeDisambiguation) {
         var result =
                 JSON.createObjectNode()
                         .put(
@@ -157,6 +166,16 @@ public final class CatalogDirectory {
                         .put(
                                 "cover_url",
                                 AlbumCovers.url(core == null ? remote.id() : core.id(), 250));
+        if (includeDisambiguation) {
+            if (core == null) result.putNull("secondary_types");
+            else {
+                var secondaryTypes = result.putArray("secondary_types");
+                core.secondaryTypes().stream().sorted().forEach(secondaryTypes::add);
+            }
+            String comment = core == null ? "" : core.comment();
+            if (comment.isEmpty()) result.putNull("disambiguation");
+            else result.put("disambiguation", comment);
+        }
         var identity = result.putObject("identity");
         identity.put("title", core == null ? remote.title() : core.title());
         identity.put("artist_credit", core == null ? remote.artist() : core.artistCredit());

@@ -246,7 +246,14 @@ export class FixtureBackend {
     if (path.startsWith("/v1/catalog/albums/"))
       return send("ResolvedAlbum", shared("outside-core-genre-mapping"));
     if (path === "/v1/catalog/albums")
-      return send("AlbumSearchResult", shared("search-deduplicated-mbid"));
+      return send(
+        "AlbumSearchResult",
+        shared(
+          url.searchParams.get("include_disambiguation") === "true"
+            ? "search-with-disambiguation"
+            : "search-deduplicated-mbid",
+        ),
+      );
     if (path === "/v1/catalog/genres") {
       const parent = url.searchParams.get("parent_id");
       const query = url.searchParams.get("query")?.toLowerCase();

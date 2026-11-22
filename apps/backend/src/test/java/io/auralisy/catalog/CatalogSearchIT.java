@@ -30,9 +30,17 @@ class CatalogSearchIT {
                         .put("type", "Single");
         single.putArray("aliases");
         single.putArray("redirects");
+        String coreId = "55555555-5555-4555-8555-555555555555";
+        var core =
+                album.deepCopy()
+                        .put("id", coreId)
+                        .put("title", "Test Edition")
+                        .put("artist", "Test Artist");
+        core.putArray("aliases");
+        core.putArray("redirects");
         String digest =
                 LuceneCatalogSearchTest.writeRows(
-                        temp.resolve("source"), java.util.List.of(album, single));
+                        temp.resolve("source"), java.util.List.of(album, single, core));
         CatalogIndexBuild.build(temp.resolve("source"), temp.resolve("index"), digest);
         try (var host = new CatalogSearchHarness(temp.resolve("index"), digest);
                 var anonymous = HttpClient.newHttpClient();
@@ -122,6 +130,46 @@ class CatalogSearchIT {
                         "read must not renew");
                 assertEquals(
                         "no-store", response.headers().firstValue("Cache-Control").orElseThrow());
+            }
+            for (var operation :
+                    new String[][] {
+                        {
+                            "/v1/catalog/albums?query=Test%20Edition",
+                            "/items/0",
+                            "AlbumSearchResult"
+                        },
+                        {"/v1/catalog/albums/" + coreId, "/album", "ResolvedAlbum"}
+                    }) {
+                for (String flag : new String[] {null, "false", "true", "", "yes"}) {
+                    String path = operation[0];
+                    if (flag != null)
+                        path += (path.contains("?") ? "&" : "?") + "include_disambiguation=" + flag;
+                    var response =
+                            client.send(
+                                    HttpRequest.newBuilder(URI.create(host.base + path))
+                                            .GET()
+                                            .build(),
+                                    HttpResponse.BodyHandlers.ofString());
+                    var payload = json.readTree(response.body());
+                    if ("".equals(flag) || "yes".equals(flag)) {
+                        assertEquals(400, response.statusCode(), path);
+                        assertTrue(schema.validProductError(payload));
+                        assertEquals("INVALID_PAYLOAD", payload.path("code").asText(), path);
+                    } else {
+                        assertEquals(200, response.statusCode(), path);
+                        assertTrue(schema.validDefinition(operation[2], payload), path);
+                        var row = payload.at(operation[1]);
+                        assertEquals(coreId, row.path("mb_release_group_id").asText());
+                        assertTrue(row.path("in_core_catalog").asBoolean());
+                        boolean optedIn = "true".equals(flag);
+                        assertEquals(optedIn, row.has("secondary_types"), path);
+                        assertEquals(optedIn, row.has("disambiguation"), path);
+                        if (optedIn) {
+                            assertEquals("[\"Live\"]", row.path("secondary_types").toString());
+                            assertEquals("Original comment I", row.path("disambiguation").asText());
+                        }
+                    }
+                }
             }
             for (String query : new String[] {"Bjork", "GateSingle"}) {
                 var response =

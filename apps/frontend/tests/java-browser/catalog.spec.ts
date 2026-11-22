@@ -47,7 +47,8 @@ test("real Java bootstrap, genres, full catalog selection and read-only recovery
   const album = matches.items[0]!;
   const name = `${album.identity.title} — ${album.identity.artist_credit}`;
   await page
-    .getByRole("button", { name: `添加${name}`, exact: true })
+    .getByRole("list", { name: "专辑搜索结果" })
+    .getByRole("button", { name: `添加${name} ·` })
     .first()
     .click();
   await expect(

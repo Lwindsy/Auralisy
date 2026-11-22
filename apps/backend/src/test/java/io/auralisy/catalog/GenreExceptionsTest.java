@@ -43,7 +43,8 @@ class GenreExceptionsTest {
                             List.of(),
                             strings(row.path("genres")).stream()
                                     .map(g -> new CatalogQuery.Genre(g, g))
-                                    .toList()));
+                                    .toList(),
+                            ""));
         }
         var groups = new LinkedHashMap<String, Set<String>>();
         for (var genre : fixture.path("genres")) {

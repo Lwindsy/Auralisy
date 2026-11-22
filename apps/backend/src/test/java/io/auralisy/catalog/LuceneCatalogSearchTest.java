@@ -120,6 +120,7 @@ class LuceneCatalogSearchTest {
             assertEquals("Unrelated Artist", found.get(2).artist());
             assertEquals(
                     found.get(1).id(), search.search("Radiohead", 1, 1).albums().getFirst().id());
+            assertTrue(search.search("O Radiohead", 0, 10).albums().isEmpty());
             assertTrue(search.search("Radiohead impossible", 0, 10).albums().isEmpty());
         }
         try (var search =
@@ -140,6 +141,45 @@ class LuceneCatalogSearchTest {
             assertEquals(
                     "Unrelated Artist",
                     search.search("Unrelated", 0, 10).albums().getFirst().artist());
+        }
+    }
+
+    @Test
+    void longPartialWordsWorkInEitherPositionAndExactNonFinalWordsScoreHigher() throws Exception {
+        Path source = temp.resolve("prince-source"), index = temp.resolve("prince-index");
+        var rows = new ArrayList<com.fasterxml.jackson.databind.node.ObjectNode>();
+        var titles = List.of("Sign of the Times", "Sign of the Time", "Sign of Theme Time");
+        for (int i = 0; i < titles.size(); i++) {
+            var row =
+                    JSON.createObjectNode()
+                            .put("id", new UUID(0, i + 1).toString())
+                            .put("title", titles.get(i))
+                            .put("artist", "Prince")
+                            .put("year", 1987)
+                            .put("type", "Album");
+            row.putArray("genres");
+            row.putArray("aliases");
+            row.putArray("redirects");
+            rows.add(row);
+        }
+        String digest = writeRows(source, rows);
+        CatalogIndexBuild.build(source, index, digest);
+        UUID target = new UUID(0, 1), exact = new UUID(0, 2);
+        try (var search = new LuceneCatalogSearch(index, digest)) {
+            for (String query :
+                    List.of(
+                            "prince sign of the time",
+                            "sign of the time prince",
+                            "sign of the times prince")) {
+                var found = search.search(query, 0, 10).albums().stream().map(a -> a.id()).toList();
+                assertTrue(found.contains(target), query);
+                assertFalse(found.contains(new UUID(0, 3)), query);
+            }
+            assertEquals(
+                    List.of(exact, target),
+                    search.search("sign of the time prince", 0, 10).albums().stream()
+                            .map(a -> a.id())
+                            .toList());
         }
     }
 
