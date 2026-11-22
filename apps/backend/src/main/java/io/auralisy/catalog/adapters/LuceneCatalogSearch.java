@@ -82,8 +82,19 @@ public final class LuceneCatalogSearch implements CatalogSearchPort, AutoCloseab
             for (int i = 0; i < terms.size(); i++) {
                 String word = terms.get(i);
                 Query token = new TermQuery(new Term("text", word));
-                if (i == terms.size() - 1 && (terms.size() > 1 || word.length() >= 3))
-                    token = new PrefixQuery(new Term("text", word));
+                if (i == terms.size() - 1) {
+                    if (terms.size() > 1 || word.length() >= 3)
+                        token = new PrefixQuery(new Term("text", word));
+                } else if (word.codePointCount(0, word.length()) >= 4) {
+                    token =
+                            new BooleanQuery.Builder()
+                                    .add(token, BooleanClause.Occur.SHOULD)
+                                    .add(
+                                            new PrefixQuery(new Term("text", word)),
+                                            BooleanClause.Occur.SHOULD)
+                                    .setMinimumNumberShouldMatch(1)
+                                    .build();
+                }
                 query.add(token, BooleanClause.Occur.MUST);
             }
             var title = new PhraseQuery.Builder();
