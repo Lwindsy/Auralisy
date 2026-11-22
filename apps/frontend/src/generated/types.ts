@@ -93,6 +93,14 @@ export interface CatalogAlbum {
   identity: Identity;
   in_core_catalog: boolean;
   cover_url?: string;
+  /**
+   * 核心目录的 MusicBrainz 副类型英文名，按名称排序。空数组表示没有登记副类型；库外作品为 null。
+   */
+  secondary_types?: string[] | null;
+  /**
+   * 核心目录的 MusicBrainz 非空消歧注释原文。无注释或库外作品为 null。
+   */
+  disambiguation?: string | null;
 }
 export interface Identity {
   title: string;

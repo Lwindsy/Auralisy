@@ -75,7 +75,8 @@ class CatalogDirectoryTest {
                                         2000,
                                         "Album",
                                         List.of(),
-                                        List.of())));
+                                        List.of(),
+                                        "")));
         var selected = directory.resolve(album);
         assertEquals(canonical.toString(), selected.at("/input/release_group_id").asText());
         assertTrue(selected.at("/input/external").isNull());
@@ -83,10 +84,111 @@ class CatalogDirectoryTest {
     }
 
     @Test
+    void optInDisambiguatesSameTitleAndYearWithoutMergingWorkGroups() {
+        UUID other = new UUID(0, 2);
+        UUID outside = new UUID(0, 3);
+        when(remote.search("Rayon Moon", 0, 50))
+                .thenReturn(
+                        new CatalogSearchPort.Page(
+                                List.of(
+                                        external,
+                                        new CatalogSearchPort.Album(
+                                                other,
+                                                "Same EP",
+                                                "Rayon Moon",
+                                                2000,
+                                                "EP",
+                                                List.of(),
+                                                0),
+                                        new CatalogSearchPort.Album(
+                                                outside,
+                                                "Same EP",
+                                                "Rayon Moon",
+                                                2000,
+                                                "EP",
+                                                List.of(),
+                                                0)),
+                                null));
+        when(local.albums(anyLong(), anyList()))
+                .thenAnswer(
+                        call -> {
+                            List<UUID> ids = call.getArgument(1);
+                            var found = new HashMap<UUID, CatalogQuery.Album>();
+                            if (ids.contains(album))
+                                found.put(
+                                        album,
+                                        new CatalogQuery.Album(
+                                                album,
+                                                "Same EP",
+                                                "Rayon Moon",
+                                                2000,
+                                                "EP",
+                                                List.of("Live", "Compilation"),
+                                                List.of(),
+                                                "I"));
+                            if (ids.contains(other))
+                                found.put(
+                                        other,
+                                        new CatalogQuery.Album(
+                                                other,
+                                                "Same EP",
+                                                "Rayon Moon",
+                                                2000,
+                                                "EP",
+                                                List.of(),
+                                                List.of(),
+                                                "II"));
+                            return found;
+                        });
+        var optedIn = directory.search("Rayon Moon", 0, 20, true).path("items");
+        assertEquals(3, optedIn.size());
+        for (var row : optedIn) {
+            var id = UUID.fromString(row.path("mb_release_group_id").asText());
+            assertTrue(row.has("secondary_types"));
+            assertTrue(row.has("disambiguation"));
+            if (id.equals(album)) {
+                assertEquals("I", row.path("disambiguation").asText());
+                assertEquals("[\"Compilation\",\"Live\"]", row.path("secondary_types").toString());
+            } else if (id.equals(other)) {
+                assertEquals("II", row.path("disambiguation").asText());
+                assertEquals("[]", row.path("secondary_types").toString());
+            } else {
+                assertEquals(outside, id);
+                assertTrue(row.path("secondary_types").isNull());
+                assertTrue(row.path("disambiguation").isNull());
+            }
+        }
+        assertEquals("I", directory.resolve(album, true).at("/album/disambiguation").asText());
+        assertFalse(directory.resolve(album).path("album").has("secondary_types"));
+        assertFalse(directory.resolve(album).path("album").has("disambiguation"));
+        for (var row : directory.search("Rayon Moon", 0, 20, false).path("items")) {
+            assertFalse(row.has("secondary_types"));
+            assertFalse(row.has("disambiguation"));
+        }
+    }
+
+    @Test
+    void optedInCoreAlbumWithEmptyCommentHasAnExplicitNull() {
+        when(local.albums(1L, List.of(album)))
+                .thenReturn(
+                        Map.of(
+                                album,
+                                new CatalogQuery.Album(
+                                        album, "Core", "Artist", 2000, "Album", List.of(),
+                                        List.of(), "")));
+        var row = directory.resolve(album, true).path("album");
+        assertTrue(row.has("disambiguation"));
+        assertTrue(row.path("disambiguation").isNull());
+        assertTrue(row.has("secondary_types"));
+        assertTrue(row.path("secondary_types").isArray());
+        assertTrue(row.path("secondary_types").isEmpty());
+    }
+
+    @Test
     void duplicateRowsCollapseAndVersionChangeRejectsMixedData() {
         when(remote.search("album", 0, 50))
                 .thenReturn(new CatalogSearchPort.Page(List.of(external, external), null));
-        assertEquals(1, directory.search("album", 0, 20).path("items").size());
+        assertEquals(1, directory.search("album", 0, 20, false).path("items").size());
         when(version.current()).thenReturn(1L, 2L);
         assertEquals(
                 "CATALOG_VERSION_CHANGED",
@@ -96,13 +198,13 @@ class CatalogDirectoryTest {
     @Test
     void invalidRequestsNeverReachUpstreamAndUnicodeLimitsCountCodepoints() {
         for (String bad : List.of(" ", "x".repeat(201)))
-            assertThrows(CatalogFailure.class, () -> directory.search(bad, 0, 20));
-        assertThrows(CatalogFailure.class, () -> directory.search("x", 10001, 20));
-        assertThrows(CatalogFailure.class, () -> directory.search("x", 0, 51));
+            assertThrows(CatalogFailure.class, () -> directory.search(bad, 0, 20, false));
+        assertThrows(CatalogFailure.class, () -> directory.search("x", 10001, 20, false));
+        assertThrows(CatalogFailure.class, () -> directory.search("x", 0, 51, false));
         verifyNoInteractions(remote);
         String valid = "🎵".repeat(200);
         when(remote.search(valid, 0, 50)).thenReturn(new CatalogSearchPort.Page(List.of(), null));
-        assertTrue(directory.search(valid, 0, 20).path("items").isEmpty());
+        assertTrue(directory.search(valid, 0, 20, false).path("items").isEmpty());
     }
 
     @Test
@@ -134,7 +236,8 @@ class CatalogDirectoryTest {
                                                     null,
                                                     "Single",
                                                     List.of(),
-                                                    List.of()))
+                                                    List.of(),
+                                                    ""))
                                     : Map.of();
                         });
         when(remote.search(eq("Artist"), anyInt(), eq(50)))
@@ -145,13 +248,13 @@ class CatalogDirectoryTest {
                             return new CatalogSearchPort.Page(
                                     rows.subList(offset, end), end < rows.size() ? end : null);
                         });
-        var first = directory.search("Artist", 0, 2);
+        var first = directory.search("Artist", 0, 2, false);
         assertEquals(2, first.path("items").size());
         assertEquals(
                 rows.get(50).id().toString(), first.at("/items/0/mb_release_group_id").asText());
         assertEquals("EP", first.at("/items/1/identity/release_type").asText());
         assertEquals(53, first.path("next_offset").asInt());
-        var second = directory.search("Artist", first.path("next_offset").asInt(), 2);
+        var second = directory.search("Artist", first.path("next_offset").asInt(), 2, false);
         assertEquals(1, second.path("items").size());
         assertEquals(
                 rows.get(53).id().toString(), second.at("/items/0/mb_release_group_id").asText());
@@ -164,12 +267,12 @@ class CatalogDirectoryTest {
                 new CatalogSearchPort.Album(album, "Exact", "Artist", null, "single", List.of(), 0);
         when(remote.search("Exact", 0, 50))
                 .thenReturn(new CatalogSearchPort.Page(List.of(single), null));
-        var empty = directory.search("Exact", 0, 20);
+        var empty = directory.search("Exact", 0, 20, false);
         assertTrue(empty.path("items").isEmpty());
         assertTrue(empty.path("next_offset").isNull());
         when(remote.search("unknown", 0, 50))
                 .thenReturn(new CatalogSearchPort.Page(List.of(external), null));
-        assertEquals(1, directory.search("unknown", 0, 20).path("items").size());
+        assertEquals(1, directory.search("unknown", 0, 20, false).path("items").size());
     }
 
     @Test

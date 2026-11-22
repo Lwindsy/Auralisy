@@ -18,19 +18,29 @@ public class CatalogHttpController {
     public JsonNode albums(
             @RequestParam String query,
             @RequestParam(defaultValue = "0") int offset,
-            @RequestParam(defaultValue = "20") int limit) {
-        return directory.search(query, offset, limit);
+            @RequestParam(defaultValue = "20") int limit,
+            @RequestParam(name = "include_disambiguation", required = false) String include) {
+        return directory.search(query, offset, limit, includeDisambiguation(include));
     }
 
     @GetMapping("/v1/catalog/albums/{mbid}")
-    public JsonNode album(@PathVariable String mbid) {
+    public JsonNode album(
+            @PathVariable String mbid,
+            @RequestParam(name = "include_disambiguation", required = false) String include) {
+        boolean includeDisambiguation = includeDisambiguation(include);
         try {
             UUID id = UUID.fromString(mbid);
             if (!id.toString().equalsIgnoreCase(mbid)) throw new IllegalArgumentException();
-            return directory.resolve(id);
+            return directory.resolve(id, includeDisambiguation);
         } catch (IllegalArgumentException invalid) {
             throw new CatalogFailure(400, "INVALID_PAYLOAD");
         }
+    }
+
+    private static boolean includeDisambiguation(String value) {
+        if (value == null || "false".equals(value)) return false;
+        if ("true".equals(value)) return true;
+        throw new CatalogFailure(400, "INVALID_PAYLOAD");
     }
 
     @GetMapping("/v1/catalog/genres")

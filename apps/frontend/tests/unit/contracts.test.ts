@@ -120,6 +120,27 @@ describe("contract consumer", () => {
     );
   });
 
+  test("catalog requests opt in and still accept responses from 0.22", async () => {
+    const fixtures = {
+      "/v1/catalog/albums": shared("search-deduplicated-mbid"),
+      "/v1/catalog/albums/fixture": shared("outside-core-genre-mapping"),
+    } as const;
+    const api = new Api(async (url) => {
+      const request = new URL(url, "http://localhost");
+      expect(request.searchParams.get("include_disambiguation")).toBe("true");
+      const response = fixtures[request.pathname as keyof typeof fixtures];
+      return new Response(JSON.stringify(response));
+    });
+    await expect(
+      api.request("GET", "/v1/catalog/albums", { query: { query: "artist" } }),
+    ).resolves.toEqual(fixtures["/v1/catalog/albums"]);
+    await expect(
+      api.request("GET", "/v1/catalog/albums/{mb_release_group_id}", {
+        params: { mb_release_group_id: "fixture" },
+      }),
+    ).resolves.toEqual(fixtures["/v1/catalog/albums/fixture"]);
+  });
+
   test("1024-codepoint catalog titles survive consumer validation without truncation", () => {
     const result = shared<AlbumSearchResult>("search-deduplicated-mbid");
     result.items[0]!.identity.title = "🎵".repeat(1024);

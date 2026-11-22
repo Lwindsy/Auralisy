@@ -13,7 +13,8 @@ public interface CatalogQuery {
             Integer year,
             String primaryType,
             List<String> secondaryTypes,
-            List<Genre> genres) {
+            List<Genre> genres,
+            String comment) {
         public Album {
             secondaryTypes = List.copyOf(secondaryTypes);
             genres = List.copyOf(genres);

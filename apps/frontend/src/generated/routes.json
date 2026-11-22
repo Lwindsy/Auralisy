@@ -123,6 +123,7 @@
     "request": null,
     "responses": {
       "200": "ResolvedAlbum",
+      "400": "ProductError",
       "404": "ProductError",
       "503": "ProductError",
       "504": "ProductError"
