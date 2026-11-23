@@ -1,0 +1,72 @@
+{
+  "agent_policy": {
+    "revision": "desktop-v1",
+    "timing": {
+      "shortlist_freeze_ms": 120000,
+      "short_review_tech_timeout_ms": 120000,
+      "select_tech_timeout_ms": 120000,
+      "long_review_timeout_ms": 120000,
+      "research_timeout_fg_ms": 120000,
+      "research_timeout_bg_ms": 120000,
+      "interpret_timeout_ms": 120000,
+      "recall_timeout_ms": 120000
+    },
+    "screening": {
+      "score_scale": "ANCHORED_1_5",
+      "shortlist_min_score": 3,
+      "supplement_min_score": 3,
+      "min_qualified_reads": 1,
+      "reads_per_album_initial": 3,
+      "max_reads_per_album": 8,
+      "max_searches_per_album": 4,
+      "min_review_chars": 200,
+      "excerpt_token_cap": 16000
+    },
+    "supply": {
+      "wave_overprovision": 0,
+      "replenish_watermark": 1,
+      "supply_batch_size": 1,
+      "rerun_exclusion_scope": "ALL_PRIOR_EXCEPT_READ_FAILED",
+      "next_round_start": "ON_DEMAND",
+      "max_rounds_per_session": 5
+    },
+    "writing": {
+      "short_min_han": 40,
+      "short_max_han": 180,
+      "long_min_han": 0,
+      "long_section_min_han": 0,
+      "long_extra_max_searches": 1,
+      "long_extra_max_reads": 2,
+      "long_tool_turns": 1
+    },
+    "concurrency": {
+      "model_max_in_flight": 20,
+      "background_model_max_in_flight": 8,
+      "search_max_in_flight": 4,
+      "read_max_in_flight": 8,
+      "read_max_per_host": 2
+    },
+    "recall": {
+      "weights": {
+        "special": 2.0,
+        "focus": 2.0
+      }
+    }
+  },
+  "selection_config": {
+    "revision": "desktop-v1",
+    "recall_target_count": 20,
+    "shortlist_target_count": 6,
+    "recommendation_target_count": 3
+  },
+  "web_guards": {
+    "https_only": true,
+    "deny_ip_literals": true,
+    "deny_private_networks": true,
+    "max_redirects": 4,
+    "max_bytes": 2000000,
+    "read_timeout_ms": 20000
+  },
+  "capabilities": ["web_search.v1", "web_read.v1"],
+  "idle_close_ms": 250
+}
