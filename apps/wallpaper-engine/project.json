@@ -1,0 +1,28 @@
+{
+  "file": "index.html",
+  "preview": "preview.jpg",
+  "title": "Auralisy",
+  "description": "One album a day from the genres you love. Needs the Auralisy service running on this computer.",
+  "type": "web",
+  "tags": ["Music"],
+  "general": {
+    "properties": {
+      "serviceurl": {
+        "order": 100,
+        "text": "Local Auralisy service / 本机服务地址",
+        "type": "textinput",
+        "value": "http://127.0.0.1:4180"
+      },
+      "language": {
+        "order": 101,
+        "text": "Language / 语言",
+        "type": "combo",
+        "value": "zh-CN",
+        "options": [
+          { "label": "中文", "value": "zh-CN" },
+          { "label": "English", "value": "en" }
+        ]
+      }
+    }
+  }
+}
