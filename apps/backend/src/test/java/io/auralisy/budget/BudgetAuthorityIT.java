@@ -111,6 +111,22 @@ class BudgetAuthorityIT {
     }
 
     Context context(long sessionCap, long roundCap, long fg, long bg, int calls) {
+        return context(
+                sessionCap,
+                roundCap,
+                fg,
+                bg,
+                calls,
+                new BudgetAuthority.Price("test-v1", 1000000, 500000, 2000000, 7, 10000, 10000));
+    }
+
+    Context context(
+            long sessionCap,
+            long roundCap,
+            long fg,
+            long bg,
+            int calls,
+            BudgetAuthority.Price price) {
         String subject = id(), session = id(), round = id(), run = id(), execution = id();
         tx.write(
                 () -> {
@@ -174,10 +190,7 @@ class BudgetAuthorityIT {
                         bg,
                         calls,
                         10,
-                        Map.of(
-                                "model-" + id(),
-                                new BudgetAuthority.Price(
-                                        "test-v1", 1000000, 500000, 2000000, 7, 10000, 10000)));
+                        Map.of("model-" + id(), price));
         active.add(c);
         budget.register(c);
         return c;
@@ -222,6 +235,43 @@ class BudgetAuthorityIT {
 
     JsonNode state(Context c) throws Exception {
         return JSON.readTree(budget.state(c));
+    }
+
+    @Test
+    void deepSeekSearchReserves750PlusTwoAndSettlesWithZeroTokens() throws Exception {
+        var flash =
+                new BudgetAuthority.Price(
+                        "deepseek-2026-11-22-peak", 300000, 6000, 1200000, 750, 180000, 2048);
+        var low = context(751, 751, 751, 0, 10, flash);
+        var denied =
+                plan(low, "search", "FOREGROUND", "SEARCH")
+                        .put("candidate_id", "candidate")
+                        .put("max_input_tokens", 1)
+                        .put("max_output_tokens", 1);
+        assertEquals("DENIED", grants(low, denied).get(0).path("decision").asText());
+        assertEquals(
+                0, state(low).path("lanes").path("FOREGROUND").path("reserved_microusd").asLong());
+
+        var exact = context(752, 752, 752, 0, 10, flash);
+        var search =
+                plan(exact, "search", "FOREGROUND", "SEARCH")
+                        .put("candidate_id", "candidate")
+                        .put("max_input_tokens", 1)
+                        .put("max_output_tokens", 1);
+        var grant = grants(exact, search).get(0);
+        assertEquals("GRANTED", grant.path("decision").asText(), grant.toString());
+        assertEquals(
+                752,
+                state(exact).path("lanes").path("FOREGROUND").path("reserved_microusd").asLong());
+        var completed =
+                receipt(search, "deepseek-search", "COMPLETED")
+                        .put("input_tokens", 0)
+                        .put("cached_input_tokens", 0)
+                        .put("output_tokens", 0);
+        budget.settle(exact.evidence().execution(), completed.toString());
+        var lane = state(exact).path("lanes").path("FOREGROUND");
+        assertEquals(0, lane.path("reserved_microusd").asLong());
+        assertEquals(750, lane.path("settled_microusd").asLong());
     }
 
     @Test

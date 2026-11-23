@@ -75,6 +75,11 @@ class ModelAdapter(Protocol):
 
 
 class SearchAdapter(Protocol):
+    @property
+    def search_token_bounds(self) -> tuple[int, int] | None: ...
+    def check_query(
+        self, query: str, allowed_domains: tuple[str, ...], blocked_domains: tuple[str, ...]
+    ) -> None: ...
     def check_binding(self, binding: ModelBinding, *, search: bool = False) -> None: ...
     async def search(
         self,

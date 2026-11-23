@@ -1,0 +1,44 @@
+{
+  "reference": "SET_EXPLICIT_GENRE_REFERENCE_PATH",
+  "recall_snapshot": "SET_EXPLICIT_APPROVED_RECALL_SNAPSHOT_PATH",
+  "model_bindings": "deepseek-bindings.example.json",
+  "control_url": "http://127.0.0.1:8080",
+  "service_token_env": "AURALIS_SERVICE_TOKEN",
+  "control_token_env": "AURALIS_SERVICE_TOKEN",
+  "provider_key_env": "AURALIS_DEEPSEEK_API_KEY",
+  "receipt_timeout_seconds": 1.0,
+  "execution_capacity": 3,
+  "evidence_mode": "live",
+  "service_resources": {
+    "model": 6,
+    "search": 12,
+    "read": 18,
+    "cpu": 2,
+    "per_host": 2,
+    "background": 3,
+    "pending": 64,
+    "quota_groups": {
+      "deepseek_flash": {
+        "rpm": 600,
+        "tpm": 2000000
+      },
+      "deepseek_pro": {
+        "rpm": 120,
+        "tpm": 600000
+      }
+    },
+    "model_groups": {
+      "deepseek-flash": "deepseek_flash",
+      "deepseek-v4-pro": "deepseek_pro"
+    }
+  },
+  "genre_taxonomy": "taxonomy.json",
+  "model_provider": "deepseek",
+  "audience_snapshot": "SET_EXPLICIT_APPROVED_AUDIENCE_SNAPSHOT_PATH",
+  "audience_binding": {
+    "dataset_id": "SET_EXPLICIT_DATASET_ID",
+    "window": "SET_EXPLICIT_WINDOW",
+    "sample_listeners": 0,
+    "snapshot_digest": "SET_EXPLICIT_AUDIENCE_DIGEST"
+  }
+}

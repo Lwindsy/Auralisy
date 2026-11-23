@@ -177,19 +177,24 @@ class ToolGateway:
         allowed, blocked = (), ()
         binding = self.model_gateway.binding(execution, "screen")
         self.search_adapter.check_binding(binding, search=True)
-        bound = len(query.encode("utf-8")) + sum(len(domain) for domain in allowed + blocked) + 1024
-        if bound > binding.max_input_tokens:
-            raise CallDenied("SEARCH_INPUT_TOO_LARGE")
-        # Hosted search may add result context beyond the query. Reserve the full
-        # approved input bound; the query's own byte bound cannot price that context.
+        self.search_adapter.check_query(query, allowed, blocked)
+        bounds = self.search_adapter.search_token_bounds
+        if bounds is None:
+            bound = (
+                len(query.encode("utf-8")) + sum(len(domain) for domain in allowed + blocked) + 1024
+            )
+            if bound > binding.max_input_tokens:
+                raise CallDenied("SEARCH_INPUT_TOO_LARGE")
+            # Hosted search can add result context beyond the query's own byte bound.
+            bounds = binding.max_input_tokens, min(binding.max_output_tokens, 1024)
         plan = execution.invocation_plan(
             "SEARCH",
             "screen",
             {"query": query, "domains": allowed, "blocked": blocked},
             candidate_id=candidate_id,
             lane=lane,
-            max_input_tokens=binding.max_input_tokens,
-            max_output_tokens=min(binding.max_output_tokens, 1024),
+            max_input_tokens=bounds[0],
+            max_output_tokens=bounds[1],
         )
         result = await execution.invoke(
             plan,

@@ -19,6 +19,10 @@ from pathlib import Path
 IMAGE = "postgres:18.6-bookworm"
 FLAGS = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
 BASE_ENV = ("PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "USERPROFILE", "COMSPEC")
+PROVIDER_KEYS = {
+    "openai": "AURALIS_PRODUCT_TEST_API_KEY",
+    "deepseek": "AURALIS_DEEPSEEK_API_KEY",
+}
 SECRETS = ("AURALIS_DATABASE_PASSWORD", "AURALIS_SERVICE_TOKEN", "AURALIS_SUBJECT_SECRET")
 
 
@@ -45,6 +49,14 @@ def environment(names=()):
 
 def read_json(path):
     return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def provider_key_env(agent):
+    provider = agent.get("model_provider", "openai")
+    require(provider in ("openai", "deepseek"), "UNKNOWN_MODEL_PROVIDER")
+    key = PROVIDER_KEYS[provider]
+    require(agent.get("provider_key_env") == key, "SECRET_SCOPE_MISMATCH")
+    return key
 
 
 def digest(path):
@@ -280,16 +292,17 @@ class Host:
             version.returncode == 0 and re.search(rb'version "21\.', version.stderr),
             "JAVA_21_REQUIRED",
         )
+        agent = read_json(self.file("agent_config"))
+        key_env = provider_key_env(agent)
         self.call(
             [
                 self.file("python"),
                 "-c",
                 "import sys; assert sys.version_info[:3] == (3, 10, 8); import auralisy_intelligence, aiohttp",
             ],
-            env=self.agent_environment(),
+            env=self.agent_environment(agent),
         )
         self.stopped()
-        agent = read_json(self.file("agent_config"))
         require(
             (Path(self.file("agent_config")).parent / agent["genre_taxonomy"]).resolve()
             == Path(self.file("genre_taxonomy")).resolve(),
@@ -303,8 +316,7 @@ class Host:
         )
         require(
             agent["service_token_env"] == "AURALIS_SERVICE_TOKEN"
-            and agent["control_token_env"] == "AURALIS_SERVICE_TOKEN"
-            and agent["provider_key_env"] == "AURALIS_PRODUCT_TEST_API_KEY",
+            and agent["control_token_env"] == "AURALIS_SERVICE_TOKEN",
             "SECRET_SCOPE_MISMATCH",
         )
         require(agent.get("evidence_mode") == "live", "LIVE_CONFIGURATION_REQUIRED")
@@ -334,7 +346,7 @@ class Host:
         )
         require(re.search(rb"\n\s*t\s*\n", present), "CATALOG_OR_AUDIENCE_NOT_LOADED")
         require("budget_limits" in backend and "prices" in backend, "EXPLICIT_BUDGET_REQUIRED")
-        for key in (*SECRETS, "AURALIS_PRODUCT_TEST_API_KEY"):
+        for key in (*SECRETS, key_env):
             secret(key)
         self.owned()
         if self.scalar("SELECT to_regclass('public.auralis_restore_gate') IS NOT NULL;") == "t":
@@ -366,8 +378,11 @@ class Host:
         )
         return output
 
-    def agent_environment(self):
-        env = environment(("AURALIS_SERVICE_TOKEN", "AURALIS_PRODUCT_TEST_API_KEY"))
+    def agent_environment(self, agent=None):
+        if agent is None:
+            agent = read_json(self.file("agent_config"))
+        key_env = provider_key_env(agent)
+        env = environment(("AURALIS_SERVICE_TOKEN", key_env))
         env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1] / "intelligence" / "src")
         env.update(OPENBLAS_NUM_THREADS="1", OMP_NUM_THREADS="1", MKL_NUM_THREADS="1")
         reach = self.path.parent / "genre-reach.json"

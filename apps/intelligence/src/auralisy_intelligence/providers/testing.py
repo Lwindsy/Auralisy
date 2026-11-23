@@ -32,6 +32,11 @@ class ScriptedModelAdapter:
 
 
 class StaticSearchAdapter:
+    search_token_bounds = None
+
+    def check_query(self, query, allowed_domains, blocked_domains):
+        pass
+
     def __init__(self, hits: tuple[SearchHit, ...]) -> None:
         self.hits = hits
 

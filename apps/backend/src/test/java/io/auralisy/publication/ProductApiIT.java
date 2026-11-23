@@ -17,6 +17,51 @@ import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 @EnabledIfEnvironmentVariable(named = "AURALIS_TEST_POSTGRES_URL", matches = ".+")
 class ProductApiIT extends ProductApiFixture {
     @Test
+    @EnabledIfEnvironmentVariable(named = "AURALIS_RECALL_PYTHON", matches = ".+")
+    void loadsDeepSeekRecommendationFragmentGeneratedFromSharedRoleBindings(
+            @org.junit.jupiter.api.io.TempDir java.nio.file.Path directory) throws Exception {
+        var intelligence =
+                java.nio.file.Path.of(System.getProperty("basedir")).resolveSibling("intelligence");
+        var raw =
+                (ObjectNode)
+                        JSON.readTree(
+                                intelligence.resolve("deepseek-bindings.example.json").toFile());
+        raw.set("select", raw.path("write").deepCopy());
+        var input = directory.resolve("deepseek-bindings.json");
+        java.nio.file.Files.writeString(input, raw.toString());
+        var command =
+                new ProcessBuilder(
+                                System.getenv("AURALIS_RECALL_PYTHON"),
+                                "-m",
+                                "auralisy_intelligence.providers.java_config",
+                                input.toString())
+                        .redirectErrorStream(true);
+        command.environment().put("PYTHONPATH", intelligence.resolve("src").toString());
+        var generator = command.start();
+        var fragment = generator.getInputStream().readAllBytes();
+        assertEquals(
+                0,
+                generator.waitFor(),
+                new String(fragment, java.nio.charset.StandardCharsets.UTF_8));
+        var parsed = (ObjectNode) JSON.readTree(fragment);
+        assertEquals(5, parsed.path("model_bindings").size());
+        assertEquals(4, parsed.path("prices").size());
+        var configuration = configuration();
+        configuration.setAll(parsed);
+        var path = directory.resolve("deepseek-recommendation.json");
+        java.nio.file.Files.writeString(path, configuration.toString());
+        var loaded =
+                new io.auralisy.bootstrap.FileRecommendationPolicy(
+                        path.toString(),
+                        new io.auralisy.bootstrap.WireProtocol(JSON),
+                        new io.auralisy.bootstrap.OnlineProperties(),
+                        new io.auralisy.catalog.adapters.GenreReachIndex("", null));
+        var snapshot = JSON.readTree(loaded.snapshot());
+        assertEquals(parsed.path("model_bindings"), snapshot.path("model_bindings"));
+        assertEquals(parsed.path("prices"), snapshot.path("prices"));
+    }
+
+    @Test
     void curatedKeysAreSubjectScopedAndLegacyRunReceiptsStillReplay() throws Exception {
         int sends = peer.sends.get();
         var a = browser();

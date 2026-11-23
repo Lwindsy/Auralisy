@@ -6,12 +6,19 @@ from typing import Any
 
 import httpx
 from auralisy_intelligence.agents.ports import CallDenied, CallResult, Usage
-from jsonschema import Draft202012Validator
 
+from .response_json import read_json_object, validate_output
 from .types import ModelBinding, ModelRequest, SearchHit
 
 
 class OpenAIResponsesAdapter:
+    search_token_bounds = None
+
+    def check_query(
+        self, query: str, allowed_domains: tuple[str, ...], blocked_domains: tuple[str, ...]
+    ) -> None:
+        pass
+
     def __init__(
         self,
         api_key: str,
@@ -118,50 +125,9 @@ class OpenAIResponsesAdapter:
                 if isinstance(item, dict) and item.get("type") == "message"
             ][:8],
         }
-        try:
-            output = json.loads(text)
-        except (ValueError, TypeError) as error:
-            return CallResult(
-                outcome=reply.outcome,
-                finish="ERROR",
-                usage=reply.usage,
-                provider_request_ref=reply.provider_request_ref,
-                service_tier=reply.service_tier,
-                diagnostic={
-                    "category": "JSON_PARSE_FAILED",
-                    "line": getattr(error, "lineno", None),
-                    "column": getattr(error, "colno", None),
-                    "output_text_chars": len(text),
-                    "parse_error": getattr(error, "msg", "INVALID_JSON")[:80],
-                    **shape,
-                },
-            )
-        error = next(Draft202012Validator(request.output_schema).iter_errors(output), None)
-        if error is not None:
-            return CallResult(
-                output=output,
-                outcome=reply.outcome,
-                finish="ERROR",
-                usage=reply.usage,
-                provider_request_ref=reply.provider_request_ref,
-                diagnostic={
-                    "category": "SCHEMA_VALIDATION_FAILED",
-                    "validator": error.validator,
-                    "schema_path": list(error.absolute_schema_path),
-                    "schema_errors": [
-                        {
-                            "validator": item.validator,
-                            "schema_path": list(item.absolute_schema_path),
-                            "missing_required": [
-                                name for name in item.validator_value if name not in item.instance
-                            ]
-                            if item.validator == "required" and isinstance(item.instance, dict)
-                            else [],
-                        }
-                        for item in [error, *error.context[:4]]
-                    ],
-                },
-            )
+        reply = validate_output(text, request.output_schema, reply, shape)
+        if reply.finish != "COMPLETE":
+            return reply
         phase_diagnostic = None
         if "".join(all_texts) != text:
             try:
@@ -174,7 +140,7 @@ class OpenAIResponsesAdapter:
                     **shape,
                 }
         return CallResult(
-            output,
+            reply.output,
             reply.outcome,
             reply.finish,
             reply.usage,
@@ -261,26 +227,8 @@ class OpenAIResponsesAdapter:
                         provider_request_ref=request_ref,
                         provider_http_status=response.status_code,
                     )
-                chunks = bytearray()
-                async for chunk in response.aiter_bytes():
-                    if len(chunks) + len(chunk) > self.max_response_bytes:
-                        return CallResult(
-                            outcome="UNCERTAIN",
-                            finish="ERROR",
-                            provider_request_ref=request_ref,
-                            provider_http_status=response.status_code,
-                        )
-                    chunks.extend(chunk)
-                try:
-                    raw = json.loads(chunks)
-                except (ValueError, UnicodeError):
-                    return CallResult(
-                        outcome="UNCERTAIN",
-                        finish="ERROR",
-                        provider_request_ref=request_ref,
-                        provider_http_status=response.status_code,
-                    )
-                if not isinstance(raw, dict):
+                raw = await read_json_object(response, self.max_response_bytes)
+                if raw is None:
                     return CallResult(
                         outcome="UNCERTAIN",
                         finish="ERROR",
