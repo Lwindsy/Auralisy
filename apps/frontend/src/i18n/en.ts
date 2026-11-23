@@ -24,10 +24,10 @@ const en: Copy = {
         "No sign-up",
         "Anonymous cookie only",
         "Kept for 30 days",
-        "May be processed by OpenAI",
+        "May be processed by a third-party model provider",
       ],
       more: "Details",
-      full: "No account needed. The cookie holds only an anonymous session credential. Auralisy keeps your submitted preferences, text, and recommendation results for 30 days after your last active interaction. OpenAI may process relevant input to generate personalized recommendations and reviews.",
+      full: "No account needed. The cookie holds only an anonymous session credential. Auralisy keeps your submitted preferences, text, and recommendation results for 30 days after your last active interaction. A third-party model provider may process relevant input to generate personalized recommendations and reviews.",
     },
   },
   entry: {

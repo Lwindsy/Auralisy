@@ -223,6 +223,11 @@ class Fixtures:
             )
         raise AssertionError("UNEXPECTED_MODEL_STAGE:" + request.schema_name)
 
+    search_token_bounds = None
+
+    def check_query(self, query, allowed_domains, blocked_domains):
+        pass
+
     async def search(self, binding, query, allowed_domains, blocked_domains=()):
         match = re.search(r"Synthetic Album (\d+)", query)
         assert match, "UNKNOWN_SYNTHETIC_ALBUM"

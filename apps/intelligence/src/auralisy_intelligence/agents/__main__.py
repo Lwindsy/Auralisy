@@ -10,7 +10,13 @@ from pathlib import Path
 from aiohttp import web
 from auralisy_intelligence.preferences import ReferenceCatalog
 from auralisy_intelligence.providers import ModelGateway, OpenAIResponsesAdapter, ToolGateway
-from auralisy_intelligence.providers.config import load_bindings
+from auralisy_intelligence.providers.config import (
+    bindings_by_ref,
+    load_role_bindings,
+    model_provider,
+    validate_provider_bindings,
+)
+from auralisy_intelligence.providers.deepseek import DeepSeekResponsesAdapter, DeepSeekSearchAdapter
 from auralisy_intelligence.recall import WeightConfig
 
 from .background import RoundPipeline
@@ -45,12 +51,14 @@ def serve(args):
     def relative(name):
         return (config_path.parent / config[name]).resolve()
 
+    provider = model_provider(config)
+    roles = load_role_bindings(relative("model_bindings"))
+    validate_provider_bindings(provider, roles)
+    configured_bindings = bindings_by_ref(roles)
     service_token = os.environ.get(config["service_token_env"], "")
     control = ControlHTTPClient(
         config["control_url"], os.environ.get(config["control_token_env"], "")
     )
-    adapter = OpenAIResponsesAdapter(os.environ.get(config["provider_key_env"], ""))
-    configured_bindings = load_bindings(relative("model_bindings"))
     resource_config = dict(config["service_resources"])
     model_groups = resource_config.pop("model_groups")
     if not resource_config.get("quota_groups"):
@@ -63,9 +71,12 @@ def serve(args):
             ref: model_groups[binding.model] for ref, binding in configured_bindings.items()
         },
     )
-    configured_roles = json.loads(relative("model_bindings").read_text(encoding="utf-8"))
-    if "long_write" not in configured_roles:
-        raise ValueError("LONG_WRITE_MODEL_BINDING_REQUIRED")
+    api_key = os.environ.get(config["provider_key_env"], "")
+    if provider == "deepseek":
+        adapter = DeepSeekResponsesAdapter(api_key)
+        search_adapter = DeepSeekSearchAdapter(api_key)
+    else:
+        adapter = search_adapter = OpenAIResponsesAdapter(api_key)
     model = ModelGateway(
         adapter,
         configured_bindings,
@@ -106,7 +117,7 @@ def serve(args):
         reach_index = ReachIndex.load(relative("genre_reach_index"), relative("genre_taxonomy"))
         engine.bind_reach_index(reach_index)
         reference.available_ids = reach_index.selectable
-    long_tools = ToolGateway(search_adapter=adapter, model_gateway=model)
+    long_tools = ToolGateway(search_adapter=search_adapter, model_gateway=model)
 
     def factory(start):
         if "audience_reach_percent" in start["agent_policy"]:
@@ -176,6 +187,8 @@ def serve(args):
         await resources.close()
         await control.close()
         await adapter.close()
+        if search_adapter is not adapter:
+            await search_adapter.close()
 
     app.on_cleanup.append(cleanup)
     if args.managed_stdin:
@@ -232,7 +245,11 @@ def main() -> int:
             in {
                 "PROVIDER_QUOTA_REQUIRED",
                 "MODEL_QUOTA_NOT_CONFIGURED",
-                "LONG_WRITE_MODEL_BINDING_REQUIRED",
+                "UNKNOWN_MODEL_PROVIDER",
+                "FIVE_MODEL_ROLES_REQUIRED",
+                "SCREEN_SEARCH_NOT_CONFIGURED",
+                "STRUCTURED_OUTPUTS_REQUIRED",
+                "INVALID_DEEPSEEK_BINDING",
                 "UNKNOWN_EVIDENCE_MODE",
                 "LOOPBACK_CONTROL_CONFIGURATION_REQUIRED",
                 "SERVICE_TOKEN_REQUIRED",

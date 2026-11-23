@@ -215,10 +215,14 @@ test("中文／EN switches the whole page in place and sends the language with a
   const switcher = page.getByRole("group", { name: "界面语言" });
   const privacy = page.getByRole("contentinfo", { name: "隐私说明" });
   await expect(privacy).toContainText("记录保留 30 天");
+  await expect(privacy).toContainText("可能经第三方模型供应商处理");
   const details = privacy.getByRole("button", { name: "详情" });
   await expect(details).toHaveAttribute("aria-expanded", "false");
   await details.click();
   await expect(privacy.getByText(/Cookie 只保存匿名会话凭证/)).toBeVisible();
+  await expect(
+    privacy.getByText(/相关输入可能由第三方模型供应商处理/),
+  ).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(privacy.getByText(/Cookie 只保存匿名会话凭证/)).toBeHidden();
   await expect(switcher.getByRole("button")).toHaveText(["中文", "EN"]);
@@ -231,8 +235,15 @@ test("中文／EN switches the whole page in place and sends the language with a
   await expect(page.locator("html")).toHaveAttribute("lang", "en");
   await expect(page).toHaveTitle("Auralisy · Find your next album");
   const privacyEn = page.getByRole("contentinfo", { name: "Privacy" });
-  await expect(privacyEn).toContainText("May be processed by OpenAI");
+  await expect(privacyEn).toContainText(
+    "May be processed by a third-party model provider",
+  );
   await privacyEn.getByRole("button", { name: "Details" }).click();
+  await expect(
+    privacyEn.getByText(
+      /A third-party model provider may process relevant input/,
+    ),
+  ).toBeVisible();
   await expect(
     privacyEn.getByText(/anonymous session credential/),
   ).toBeVisible();

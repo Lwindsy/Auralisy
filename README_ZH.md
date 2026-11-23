@@ -12,7 +12,7 @@ Auralisy 帮你找到下一张想听的专辑。可以从一张喜欢的唱片�
 2. 选**熟悉**，从接近你口味的音乐找起；选**拓展**，听听相邻风格；想走得更远一点，就选**惊喜**。
 3. 专辑会陆续出现。先看几句短评，感兴趣就打开长评，读读这张专辑听起来怎样。已经听过的专辑可以点**听过了**，系统会尝试补一张。
 
-页面左上角可以切换中英文。关掉页面后，用同一个浏览器回来还能继续看。Auralisy 会把提交的偏好和推荐记录保留到最后一次主动操作后 30 天。页面底部的隐私详情说明了保存哪些信息，以及何时可能由 OpenAI 处理相关输入。
+页面左上角可以切换中英文。关掉页面后，用同一个浏览器回来还能继续看。Auralisy 会把提交的偏好和推荐记录保留到最后一次主动操作后 30 天。页面底部的隐私详情说明了保存哪些信息，以及何时可能由第三方模型供应商处理相关输入。
 
 ## 在本地试用界面
 
@@ -31,7 +31,7 @@ npm --prefix apps/frontend run dev:fixture
 - [后端](apps/backend/pom.xml)使用 Java 21 和 Spring Boot，提供目录查询，管理会话和推荐。
 - [推荐服务](apps/intelligence/pyproject.toml)使用 Python 查找候选专辑、核对资料并生成乐评。
 
-运行完整服务需要目录索引、配套音乐数据、PostgreSQL 和模型凭据。公开仓库提供应用代码和可独立运行的样例界面。所需文件、配置和数据库迁移步骤见 [Linux 部署说明](apps/runtime/deployment.txt)或 [Windows 运行说明](apps/runtime/usage.txt)。
+运行完整服务需要目录索引、配套音乐数据、PostgreSQL 和模型凭据。每套部署可选择 OpenAI 或 DeepSeek。公开仓库提供应用代码和可独立运行的样例界面。所需文件、配置和数据库迁移步骤见 [Linux 部署说明](apps/runtime/deployment.txt)或 [Windows 运行说明](apps/runtime/usage.txt)。
 
 ## 许可证
 

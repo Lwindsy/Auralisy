@@ -291,6 +291,17 @@ class RecordingAdapter:
     def check_binding(self, binding, *, search: bool = False) -> None:
         self.adapter.check_binding(binding, search=search)
 
+    @property
+    def search_token_bounds(self) -> tuple[int, int] | None:
+        """Use the wrapped adapter's search reservation bounds."""
+        return self.adapter.search_token_bounds
+
+    def check_query(
+        self, query: str, allowed_domains: tuple[str, ...], blocked_domains: tuple[str, ...]
+    ) -> None:
+        """Run the wrapped adapter's pre-authorization query validation."""
+        self.adapter.check_query(query, allowed_domains, blocked_domains)
+
     async def complete(self, binding, request):
         started = time.perf_counter()
         result = await self.adapter.complete(binding, request)
