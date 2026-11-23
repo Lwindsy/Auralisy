@@ -188,6 +188,28 @@ const zhCN = {
     scrub: "拖动或用方向键调整阅读进度",
   },
   cover: { alt: (title: string) => `${title} 封面` },
+  wallpaper: {
+    title: "Auralisy 桌面",
+    hint: "选几个喜欢的风格，或标出想避开的。之后每天早上，桌面换一张新专辑。",
+    today: "今日唱片",
+    day: (month: number, date: number, weekday: number) =>
+      `${month}月${date}日 ${["周日", "周一", "周二", "周三", "周四", "周五", "周六"][weekday]}`,
+    position: (index: number, total: number) =>
+      `${String(index).padStart(2, "0")} / ${String(total).padStart(2, "0")}`,
+    nextDay: (hour: number) => `明早 ${hour}:00 换下一张`,
+    finished: "这一组看完了",
+    more: "再来一组",
+    rethink: "换风格",
+    heard: "听过了",
+    undo: "撤销",
+    like: "喜欢",
+    controls: "壁纸操作",
+    noCards: "这次没有找到合适的专辑",
+    offline: "连不上本机的 Auralisy 服务，正在重试…",
+    paid: "会用你的 API key 生成新的推荐",
+    restart: "用同样的风格重新开始",
+    restartNote: "会新开一个会话，单独计算额度",
+  },
   wave: {
     tags: "目录风格标签",
     fallback: "音乐目录给这张专辑标的风格，只是线索。",
