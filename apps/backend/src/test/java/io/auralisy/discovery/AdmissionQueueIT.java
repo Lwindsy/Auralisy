@@ -102,10 +102,16 @@ class AdmissionQueueIT {
         budget = app.getBean(BudgetAuthority.class);
     }
 
+    private io.auralisy.persistence.DbDiagnostics diagnostics() {
+        return app.getBean(io.auralisy.persistence.DbDiagnostics.class);
+    }
+
     @BeforeEach
     void before() {
         peer = new FakePython();
-        dispatcher = new RoundDispatcher(queue, peer, LIMITS, "java-1", Clock.systemUTC());
+        dispatcher =
+                new RoundDispatcher(
+                        queue, peer, LIMITS, "java-1", Clock.systemUTC(), diagnostics());
         dispatcher.tick();
     }
 
@@ -491,7 +497,8 @@ class AdmissionQueueIT {
                         "SELECT coordinator_boot FROM discovery.runtime_control WHERE singleton",
                         String.class));
         var successor =
-                new RoundDispatcher(queue, peer, LIMITS, "java-successor", Clock.systemUTC());
+                new RoundDispatcher(
+                        queue, peer, LIMITS, "java-successor", Clock.systemUTC(), diagnostics());
         successor.tick();
         successor.tick();
         assertTrue(queue.active().isEmpty());
@@ -685,7 +692,9 @@ class AdmissionQueueIT {
                             Instant.now().plusSeconds(30));
                     return null;
                 });
-        var restarted = new RoundDispatcher(queue, peer, LIMITS, "java-new", Clock.systemUTC());
+        var restarted =
+                new RoundDispatcher(
+                        queue, peer, LIMITS, "java-new", Clock.systemUTC(), diagnostics());
         restarted.tick();
         assertEquals("INTERRUPTED", queue.status(in.scope(), legacy).status());
         assertTrue(peer.sends.isEmpty());
@@ -697,7 +706,9 @@ class AdmissionQueueIT {
     @Test
     void deploymentCanTightenCapacityOnlyWhenBothServicesAgree() throws Exception {
         var reduced = new DispatchQueue.Limits(2, 5, 30, 120);
-        var loop = new RoundDispatcher(queue, peer, reduced, "java-2", Clock.systemUTC());
+        var loop =
+                new RoundDispatcher(
+                        queue, peer, reduced, "java-2", Clock.systemUTC(), diagnostics());
         loop.tick();
         var first = input();
         assertThrows(PersistenceRejected.class, () -> queue.accept(first, reduced));
@@ -719,12 +730,20 @@ class AdmissionQueueIT {
         var source = app.getBean(javax.sql.DataSource.class);
         try (var lifecycle =
                 new io.auralisy.bootstrap.DispatchLifecycle(
-                        source, queue, peer, Clock.systemUTC(), 3, 5, 30, 120)) {
+                        source, queue, peer, Clock.systemUTC(), diagnostics(), 3, 5, 30, 120)) {
             assertThrows(
                     IllegalStateException.class,
                     () ->
                             new io.auralisy.bootstrap.DispatchLifecycle(
-                                    source, queue, peer, Clock.systemUTC(), 3, 5, 30, 120));
+                                    source,
+                                    queue,
+                                    peer,
+                                    Clock.systemUTC(),
+                                    diagnostics(),
+                                    3,
+                                    5,
+                                    30,
+                                    120));
             await(
                     () ->
                             !jdbc.queryForObject(
@@ -773,7 +792,9 @@ class AdmissionQueueIT {
     @Test
     void technicalDeadlineBlocksNewCallsBeforePhysicalCancellation() throws Exception {
         var shortLimits = new DispatchQueue.Limits(5, 1, 2);
-        var loop = new RoundDispatcher(queue, peer, shortLimits, "java-1", Clock.systemUTC());
+        var loop =
+                new RoundDispatcher(
+                        queue, peer, shortLimits, "java-1", Clock.systemUTC(), diagnostics());
         loop.tick();
         var in = input();
         var accepted = queue.accept(in, shortLimits);
@@ -792,7 +813,9 @@ class AdmissionQueueIT {
     void productionControlRoutesUsePersistedOwnershipAndAcceptLateUsage() throws Exception {
         app.close();
         boot(true);
-        dispatcher = new RoundDispatcher(queue, peer, LIMITS, "java-1", Clock.systemUTC());
+        dispatcher =
+                new RoundDispatcher(
+                        queue, peer, LIMITS, "java-1", Clock.systemUTC(), diagnostics());
         dispatcher.tick();
         var in = input();
         var accepted = queue.accept(in, LIMITS);
@@ -865,7 +888,13 @@ class AdmissionQueueIT {
     void realPythonAndPostgresAutomaticallyAdmitFourthAfterCancellation() throws Exception {
         try (var real = new PythonClientIT.ProcessPeer("java-real")) {
             var loop =
-                    new RoundDispatcher(queue, real.client, LIMITS, "java-real", Clock.systemUTC());
+                    new RoundDispatcher(
+                            queue,
+                            real.client,
+                            LIMITS,
+                            "java-real",
+                            Clock.systemUTC(),
+                            diagnostics());
             loop.tick();
             var first = input();
             var firstRun = queue.accept(first, LIMITS);
@@ -1025,7 +1054,9 @@ class AdmissionQueueIT {
     void idleBurstUsesExecutionRoomAndKeepsPhysicalCleanupBounded(int capacity) throws Exception {
         var limits = new DispatchQueue.Limits(capacity, 5, 120, 300);
         peer.capacity = capacity;
-        var loop = new RoundDispatcher(queue, peer, limits, "java-capacity", Clock.systemUTC());
+        var loop =
+                new RoundDispatcher(
+                        queue, peer, limits, "java-capacity", Clock.systemUTC(), diagnostics());
         loop.tick();
         for (int n = 0; n < capacity + limits.waiting(); n++) queue.accept(input(), limits);
         var refused = input();
@@ -1144,7 +1175,9 @@ class AdmissionQueueIT {
         var w = queue.accept(waiting, LIMITS);
         app.close();
         boot();
-        var restarted = new RoundDispatcher(queue, peer, LIMITS, "java-2", Clock.systemUTC());
+        var restarted =
+                new RoundDispatcher(
+                        queue, peer, LIMITS, "java-2", Clock.systemUTC(), diagnostics());
         restarted.tick();
         restarted.tick();
         assertEquals("INTERRUPTED", queue.status(running.scope(), r.run()).status());

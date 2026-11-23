@@ -519,6 +519,39 @@ class Host:
         raise Failure("READINESS_TIMEOUT")
 
 
+_EXCEPTION = r"[A-Za-z][A-Za-z0-9_]{0,79}"
+_SQLSTATES = r"(?:-|[0-9A-Z]{5}(?:,[0-9A-Z]{5}){0,4})"
+_EXECUTION = r"(?:-|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})"
+_PHASES = (
+    "runtime|reconcile|observe|admission|command|claim|send|unavailable|lifecycle|delivery|"
+    "invocation-grants|usage-receipt|budget-state|read-authorization|read-receipts|seed-evidence|"
+    "preference-resolution|candidate-validation"
+)
+_PID = r"[0-9]{1,10}"
+_LABEL = r"(?:-|[A-Za-z0-9_]{1,48})"
+_AGE = r"(?:-|-?[0-9]{1,19})"
+_WAITER = rf"{_PID}/{_LABEL}/{_LABEL}/{_LABEL}/{_AGE}/{_AGE}/(?:-|{_PID}(?:,{_PID}){{0,7}})"
+_DIAGNOSTIC_LINE = re.compile(
+    rf"(?:^| )(AURALIS_(?:"
+    rf"(?:AGENT_STARTUP_FAILED|STARTUP_FAILED|AGENT_REQUEST_FAILED) {_EXCEPTION}|"
+    rf"(?:DISPATCH_FAILED|DISPATCH_LIFECYCLE_FAILED|DISPATCH_UNAVAILABLE_UPDATE_FAILED)"
+    rf" {_EXCEPTION}(?: sqlstate={_SQLSTATES})?|"
+    rf"DB_DIAGNOSTIC phase=(?:{_PHASES}) outcome=(?:skipped|maintenance|failed)"
+    rf" exception={_EXCEPTION} sqlstate={_SQLSTATES} execution={_EXECUTION}|"
+    rf"DB_LOCK_SNAPSHOT result=(?:ok sessions=(?:-|{_WAITER}(?:;{_WAITER}){{0,4}})|"
+    rf"failed exception={_EXCEPTION} sqlstate={_SQLSTATES})))$",
+    re.ASCII,
+)
+
+
+def diagnostic_line(line):
+    """Return an application diagnostic suffix with validated fields."""
+    if len(line) > 4096 or "\n" in line.rstrip("\r\n") or "\r" in line.rstrip("\r\n"):
+        return None
+    match = _DIAGNOSTIC_LINE.search(line.rstrip("\r\n"))
+    return match.group(1) if match else None
+
+
 class Child:
     def __init__(self, args, env):
         self.maintenance = threading.Event()
@@ -539,12 +572,9 @@ class Child:
             while line := stream.readline(4096):
                 if line.strip() == b"AURALIS_MAINTENANCE":
                     self.maintenance.set()
-                diagnostic = re.search(
-                    rb"(?:^| )(AURALIS_(?:AGENT_STARTUP_FAILED|STARTUP_FAILED|DISPATCH_FAILED|DISPATCH_LIFECYCLE_FAILED|DISPATCH_UNAVAILABLE_UPDATE_FAILED|AGENT_REQUEST_FAILED) [A-Za-z][A-Za-z0-9_]{0,79})$",
-                    line.strip(),
-                )
+                diagnostic = diagnostic_line(line.decode("utf-8", errors="replace"))
                 if diagnostic:
-                    print(diagnostic.group(1).decode("ascii"), file=sys.stderr, flush=True)
+                    print(diagnostic, file=sys.stderr, flush=True)
 
     def send(self, command):
         with contextlib.suppress(OSError, ValueError):

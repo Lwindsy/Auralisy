@@ -9,6 +9,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stderr
 from pathlib import Path
+from unittest import mock
 from unittest.mock import Mock, patch
 
 from host import Child, Failure, Host, environment, exclusive
@@ -191,6 +192,22 @@ class HostTests(unittest.TestCase):
             child.close()
         self.assertEqual(0, child.process.returncode)
 
+    def test_telemetry_variables_pass_to_children(self):
+        switches = {
+            "AURALIS_TELEMETRY_ENABLED": "false",
+            "AURALIS_TRACE_SAMPLE_RATE": "1.0",
+            "AURALIS_OTLP_TRACES_ENDPOINT": "http://127.0.0.1:4318/v1/traces",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://127.0.0.1:4318",
+            "UNRELATED_SECRET": "synthetic-private",
+        }
+        with mock.patch.dict(os.environ, switches):
+            child = environment()
+        self.assertEqual(
+            {key: child[key] for key in switches if key != "UNRELATED_SECRET"},
+            {key: value for key, value in switches.items() if key != "UNRELATED_SECRET"},
+        )
+        self.assertNotIn("UNRELATED_SECRET", child)
+
     def test_child_forwards_only_safe_diagnostic_categories(self):
         output = io.StringIO()
         with redirect_stderr(output):
@@ -201,6 +218,13 @@ class HostTests(unittest.TestCase):
                     "-c",
                     "print('secret-output'); print('AURALIS_AGENT_STARTUP_FAILED FileNotFoundError'); "
                     "print('logger WARN AURALIS_DISPATCH_FAILED Unavailable'); "
+                    "print('AURALIS_DISPATCH_LIFECYCLE_FAILED SQLException sqlstate=55P03'); "
+                    "print('WARN AURALIS_DB_DIAGNOSTIC phase=delivery outcome=failed "
+                    "exception=SQLException sqlstate=55P03 execution=-'); "
+                    "print('AURALIS_DB_DIAGNOSTIC phase=delivery outcome=failed "
+                    "exception=SQLException sqlstate=55P03 execution=- private-secret'); "
+                    "print('AURALIS_DB_LOCK_SNAPSHOT result=ok sessions=5/active/Lock/tuple/5/6/4,3'); "
+                    "print('AURALIS_DB_LOCK_SNAPSHOT result=ok sessions=5/active/Lock/tuple/5/6/secret'); "
                     "print('AURALIS_STARTUP_FAILED ValueError private-secret')",
                 ],
                 environment(),
@@ -211,6 +235,10 @@ class HostTests(unittest.TestCase):
             [
                 "AURALIS_AGENT_STARTUP_FAILED FileNotFoundError",
                 "AURALIS_DISPATCH_FAILED Unavailable",
+                "AURALIS_DISPATCH_LIFECYCLE_FAILED SQLException sqlstate=55P03",
+                "AURALIS_DB_DIAGNOSTIC phase=delivery outcome=failed "
+                "exception=SQLException sqlstate=55P03 execution=-",
+                "AURALIS_DB_LOCK_SNAPSHOT result=ok sessions=5/active/Lock/tuple/5/6/4,3",
             ],
         )
 

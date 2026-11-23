@@ -1,6 +1,7 @@
 package io.auralisy.discovery.adapters;
 
 import static io.auralisy.contracts.CanonicalJson.*;
+import static io.auralisy.persistence.DbDiagnostics.Phase.*;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -25,6 +26,7 @@ public class PostgresDispatchQueue implements DispatchQueue {
     private final MessageDefinitions schema;
     private final BudgetAuthority budget;
     private final Clock clock;
+    private final DbDiagnostics diagnostics;
     private final org.springframework.beans.factory.ObjectProvider<ExecutionPreparation>
             preparation;
 
@@ -36,6 +38,7 @@ public class PostgresDispatchQueue implements DispatchQueue {
             MessageDefinitions schema,
             BudgetAuthority budget,
             Clock clock,
+            DbDiagnostics diagnostics,
             org.springframework.beans.factory.ObjectProvider<ExecutionPreparation> preparation) {
         this.jdbc = jdbc;
         this.sessions = sessions;
@@ -44,6 +47,7 @@ public class PostgresDispatchQueue implements DispatchQueue {
         this.schema = schema;
         this.budget = budget;
         this.clock = clock;
+        this.diagnostics = diagnostics;
         this.preparation = preparation;
     }
 
@@ -302,6 +306,7 @@ public class PostgresDispatchQueue implements DispatchQueue {
                 }
             } catch (RuntimeException failure) {
                 if (!ShortTransactions.isLockContention(failure)) throw failure;
+                diagnostics.skipped(RECONCILE, failure, job.execution());
                 // One busy subject must not postpone every other subject's cleanup.
             }
         }
@@ -372,24 +377,30 @@ public class PostgresDispatchQueue implements DispatchQueue {
                         });
             } catch (RuntimeException failure) {
                 if (!ShortTransactions.isLockContention(failure)) throw failure;
+                diagnostics.skipped(RECONCILE, failure, null);
             }
         }
     }
 
     @Override
     public void unavailable(String javaBoot) {
+        unavailable(javaBoot, null);
+    }
+
+    @Override
+    public void unavailable(String javaBoot, RuntimeException failure) {
         if (!Boolean.TRUE.equals(
                 jdbc.queryForObject(
                         "SELECT coordinator_boot=? AND NOT maintenance FROM discovery.runtime_control WHERE singleton",
                         Boolean.class,
                         javaBoot))) return;
-        tx.writeExclusive(
-                () -> {
-                    jdbc.update(
-                            "UPDATE discovery.runtime_control SET maintenance=true,revision=revision+1 WHERE singleton AND coordinator_boot=? AND NOT maintenance",
-                            javaBoot);
-                    return null;
-                });
+        int updated =
+                tx.writeExclusive(
+                        () ->
+                                jdbc.update(
+                                        "UPDATE discovery.runtime_control SET maintenance=true,revision=revision+1 WHERE singleton AND coordinator_boot=? AND NOT maintenance",
+                                        javaBoot));
+        if (updated > 0 && failure != null) diagnostics.maintenance(failure);
     }
 
     @Override

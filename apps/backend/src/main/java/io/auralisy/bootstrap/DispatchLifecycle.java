@@ -1,7 +1,10 @@
 package io.auralisy.bootstrap;
 
+import static io.auralisy.persistence.DbDiagnostics.Phase.*;
+
 import io.auralisy.discovery.api.*;
 import io.auralisy.discovery.application.RoundDispatcher;
+import io.auralisy.persistence.DbDiagnostics;
 import jakarta.annotation.PreDestroy;
 import java.sql.Connection;
 import java.time.Clock;
@@ -32,13 +35,15 @@ public final class DispatchLifecycle implements AutoCloseable {
             DispatchQueue queue,
             PythonClient peer,
             Clock clock,
-            DispatchQueue.Limits limits)
+            DispatchQueue.Limits limits,
+            DbDiagnostics diagnostics)
             throws Exception {
         this(
                 source,
                 queue,
                 peer,
                 clock,
+                diagnostics,
                 limits.executions(),
                 limits.waiting(),
                 limits.queueSeconds(),
@@ -50,6 +55,7 @@ public final class DispatchLifecycle implements AutoCloseable {
             DispatchQueue queue,
             PythonClient peer,
             Clock clock,
+            DbDiagnostics diagnostics,
             @Value("${auralis.dispatch-executions:3}") int executions,
             @Value("${auralis.dispatch-waiting:5}") int waiting,
             @Value("${auralis.dispatch-queue-seconds:30}") int queueSeconds,
@@ -68,7 +74,7 @@ public final class DispatchLifecycle implements AutoCloseable {
         }
         RoundDispatcher dispatcher;
         try {
-            dispatcher = new RoundDispatcher(queue, peer, limits, boot, clock);
+            dispatcher = new RoundDispatcher(queue, peer, limits, boot, clock, diagnostics);
         } catch (RuntimeException failure) {
             try (var statement = owner.createStatement()) {
                 statement.execute("SELECT pg_advisory_unlock(1096110668)");
@@ -97,15 +103,21 @@ public final class DispatchLifecycle implements AutoCloseable {
                         }
                         dispatcher.tick();
                     } catch (Exception e) {
+                        diagnostics.failed(LIFECYCLE, e, null);
                         LOG.warn(
-                                "AURALIS_DISPATCH_LIFECYCLE_FAILED {}",
-                                e.getClass().getSimpleName());
+                                "AURALIS_DISPATCH_LIFECYCLE_FAILED {} sqlstate={}",
+                                e.getClass().getSimpleName(),
+                                DbDiagnostics.sqlStates(e));
                         try {
-                            queue.unavailable(boot);
+                            if (e instanceof RuntimeException runtime)
+                                queue.unavailable(boot, runtime);
+                            else queue.unavailable(boot);
                         } catch (RuntimeException unavailable) {
+                            diagnostics.failed(UNAVAILABLE, unavailable, null);
                             LOG.warn(
-                                    "AURALIS_DISPATCH_UNAVAILABLE_UPDATE_FAILED {}",
-                                    unavailable.getClass().getSimpleName());
+                                    "AURALIS_DISPATCH_UNAVAILABLE_UPDATE_FAILED {} sqlstate={}",
+                                    unavailable.getClass().getSimpleName(),
+                                    DbDiagnostics.sqlStates(unavailable));
                         }
                     }
                 },

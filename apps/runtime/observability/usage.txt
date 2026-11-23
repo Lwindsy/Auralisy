@@ -45,6 +45,16 @@ Java auralisy_cost_usd_total 只在首次有效结算的事务提交后增加，
 导出默认关闭，根追踪采样率默认 0.0。AURALIS_TRACE_SAMPLE_RATE 独立控制根采样，
 Python 接到上游 traceparent 时继承其采样决定。
 
+行锁诊断
+
+Java WARN 输出 AURALIS_DB_DIAGNOSTIC，包含阶段、结果、异常类、最多五个 SQLState 和执行 ID。
+auralisy_db_lock_contention_total 按阶段累计，跳过日志每阶段每 10 秒最多输出一次。
+AURALIS_DB_LOCK_SNAPSHOT 由后台线程采集。仅当业务池有空闲连接时借用一条，
+以 250ms 查询期限读取同一数据库、同一在线角色中最多五条锁等待，每 10 秒最多采一次。
+快照条目依次为 PID／状态／等待类型／等待事件／事务毫秒／语句毫秒／阻塞 PID，缺项为 -。
+快照反映采集当时的等待关系，持锁归因使用实时观察和 PostgreSQL 等待日志。
+本地隔离预览可用 --pg-lock-diagnostics，逐项应用并恢复角色级日志设置，见 ../deployment.txt。
+
 告警与面板
 
 alerts.yml 定义三个初始运维阈值，可按实测修改。

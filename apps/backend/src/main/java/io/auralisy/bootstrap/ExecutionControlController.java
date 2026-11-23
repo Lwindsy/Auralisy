@@ -1,11 +1,13 @@
 package io.auralisy.bootstrap;
 
 import static io.auralisy.contracts.CanonicalJson.JSON;
+import static io.auralisy.persistence.DbDiagnostics.Phase.*;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import io.auralisy.budget.api.BudgetAuthority;
 import io.auralisy.discovery.api.DispatchQueue;
 import io.auralisy.evidence.api.EvidenceAuthority;
+import io.auralisy.persistence.DbDiagnostics;
 import io.auralisy.persistence.PersistenceRejected;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -22,6 +24,7 @@ public class ExecutionControlController {
     private final EvidenceAuthority evidence;
     private final WireProtocol wire;
     private final HttpErrors errors;
+    private final DbDiagnostics diagnostics;
 
     public ExecutionControlController(
             DispatchQueue queue,
@@ -30,14 +33,27 @@ public class ExecutionControlController {
             WireProtocol wire,
             HttpErrors errors,
             io.auralisy.discovery.application.Recommendations recommendations,
-            io.auralisy.persistence.ShortTransactions tx) {
+            io.auralisy.persistence.ShortTransactions tx,
+            DbDiagnostics diagnostics) {
         this.tx = tx;
+        this.diagnostics = diagnostics;
         this.queue = queue;
         this.budget = budget;
         this.evidence = evidence;
         this.wire = wire;
         this.errors = errors;
         this.recommendations = recommendations;
+    }
+
+    private <T> T database(
+            DbDiagnostics.Phase phase, String execution, java.util.function.Supplier<T> action) {
+        try {
+            return action.get();
+        } catch (RuntimeException failure) {
+            if (DbDiagnostics.isDatabaseFailure(failure))
+                diagnostics.failed(phase, failure, execution);
+            throw failure;
+        }
     }
 
     private JsonNode read(HttpServletRequest request, String expected) throws java.io.IOException {
@@ -75,7 +91,15 @@ public class ExecutionControlController {
         return response(
                 request,
                 "GrantResults",
-                tx.write(() -> budget.grants(queue.context(execution).budget(), p.toString())));
+                database(
+                        GRANTS,
+                        execution,
+                        () ->
+                                tx.write(
+                                        () ->
+                                                budget.grants(
+                                                        queue.context(execution).budget(),
+                                                        p.toString()))));
     }
 
     @GetMapping("/internal/v1/executions/{execution}/budget-state")
@@ -84,7 +108,10 @@ public class ExecutionControlController {
         return response(
                 request,
                 "BudgetState",
-                tx.write(() -> budget.state(queue.context(execution).budget())));
+                database(
+                        BUDGET,
+                        execution,
+                        () -> tx.write(() -> budget.state(queue.context(execution).budget()))));
     }
 
     @PutMapping("/internal/v1/invocations/{invocation}/usage-receipts/{receipt}")
@@ -100,7 +127,10 @@ public class ExecutionControlController {
         // Dispatcher generates UUID execution IDs. Budget independently verifies the retained
         // digest.
         String execution = invocation.substring(0, invocation.indexOf(':'));
-        return response(request, "UsageSettlement", budget.settle(execution, p.toString()));
+        return response(
+                request,
+                "UsageSettlement",
+                database(USAGE, execution, () -> budget.settle(execution, p.toString())));
     }
 
     @PostMapping("/internal/v1/executions/{execution}/read-authorization")
@@ -110,10 +140,15 @@ public class ExecutionControlController {
         return response(
                 request,
                 "ReadAuthorizationResult",
-                tx.write(
+                database(
+                        AUTHORIZE,
+                        execution,
                         () ->
-                                evidence.authorize(
-                                        queue.context(execution).evidence(), p.toString())));
+                                tx.write(
+                                        () ->
+                                                evidence.authorize(
+                                                        queue.context(execution).evidence(),
+                                                        p.toString()))));
     }
 
     @PostMapping("/internal/v1/executions/{execution}/read-receipts")
@@ -123,10 +158,15 @@ public class ExecutionControlController {
         return response(
                 request,
                 "ReadRegistrationResult",
-                tx.write(
+                database(
+                        READ_RECEIPTS,
+                        execution,
                         () ->
-                                evidence.receipts(
-                                        queue.context(execution).evidence(), p.toString())));
+                                tx.write(
+                                        () ->
+                                                evidence.receipts(
+                                                        queue.context(execution).evidence(),
+                                                        p.toString()))));
     }
 
     @GetMapping("/internal/v1/executions/{execution}/seed-evidence")
@@ -135,7 +175,10 @@ public class ExecutionControlController {
         return response(
                 request,
                 "SeedEvidenceState",
-                tx.write(() -> evidence.seeds(queue.context(execution).evidence())));
+                database(
+                        SEEDS,
+                        execution,
+                        () -> tx.write(() -> evidence.seeds(queue.context(execution).evidence()))));
     }
 
     @PutMapping("/internal/v1/executions/{execution}/seed-evidence")
@@ -145,10 +188,15 @@ public class ExecutionControlController {
         return response(
                 request,
                 "SeedEvidenceState",
-                tx.write(
+                database(
+                        SEEDS,
+                        execution,
                         () ->
-                                evidence.saveSeeds(
-                                        queue.context(execution).evidence(), p.toString())));
+                                tx.write(
+                                        () ->
+                                                evidence.saveSeeds(
+                                                        queue.context(execution).evidence(),
+                                                        p.toString()))));
     }
 
     @ExceptionHandler({
@@ -186,7 +234,12 @@ public class ExecutionControlController {
         if (!delivery.equals(payload.path("delivery_id").asText()))
             throw new PersistenceRejected("BINDING_MISMATCH");
         return response(
-                request, "DeliveryResult", recommendations.deliver(execution, payload.toString()));
+                request,
+                "DeliveryResult",
+                database(
+                        DELIVERY,
+                        execution,
+                        () -> recommendations.deliver(execution, payload.toString())));
     }
 
     @PostMapping("/internal/v1/executions/{execution}/preference-resolution")
@@ -196,7 +249,10 @@ public class ExecutionControlController {
         return response(
                 request,
                 "EffectivePreferenceSnapshot",
-                recommendations.acceptPreferences(execution, payload.toString()));
+                database(
+                        PREFERENCES,
+                        execution,
+                        () -> recommendations.acceptPreferences(execution, payload.toString())));
     }
 
     @PostMapping("/internal/v1/executions/{execution}/candidate-validation")
@@ -206,6 +262,9 @@ public class ExecutionControlController {
         return response(
                 request,
                 "CandidateBundle",
-                recommendations.acceptCandidates(execution, payload.toString()));
+                database(
+                        CANDIDATES,
+                        execution,
+                        () -> recommendations.acceptCandidates(execution, payload.toString())));
     }
 }
