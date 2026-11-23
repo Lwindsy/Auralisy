@@ -25,6 +25,10 @@ npm --prefix apps/frontend run dev:fixture
 
 Open [http://127.0.0.1:4173](http://127.0.0.1:4173) to try the interface with sample albums. This mode runs without a database or API key and makes no model calls.
 
+## Use Auralisy as a desktop wallpaper
+
+On Windows, run the service on your own computer and open the wallpaper in Wallpaper Engine. You'll need Docker Desktop, an approved catalog package, a separately approved recall snapshot and your own OpenAI API key. [Desktop setup](apps/desktop/usage.txt)
+
 ## For developers
 
 - [Frontend](apps/frontend/package.json) — React and TypeScript handle album search, browsing and reviews. Run `npm --prefix apps/frontend test` for unit tests.

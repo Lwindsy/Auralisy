@@ -25,6 +25,10 @@ npm --prefix apps/frontend run dev:fixture
 
 打开 [http://127.0.0.1:4173](http://127.0.0.1:4173)，用样例专辑体验页面。样例模式无需数据库或 API 密钥，也不会调用模型。
 
+## 把 Auralisy 用作桌面壁纸
+
+在 Windows 本机启动服务，然后用 Wallpaper Engine 打开壁纸。需要 Docker Desktop、获准使用的目录包、另行获准的召回快照和自己的 OpenAI API 密钥。[桌面壁纸安装说明](apps/desktop/usage.txt)
+
 ## 参与开发
 
 - [前端](apps/frontend/package.json)使用 React 和 TypeScript，负责专辑搜索、浏览和乐评界面。运行 `npm --prefix apps/frontend test` 可执行前端单元测试。
