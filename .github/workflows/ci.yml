@@ -6,11 +6,29 @@ on:
     paths-ignore:
       - README.md
       - README_ZH.md
+      # Desktop wallpaper: self-hosted on the visitor's own machine, never deployed here.
+      # A change touching only these paths runs no CI/CD; mixed changes still run it all.
+      - apps/wallpaper-engine/**
+      - apps/desktop/**
+      - apps/frontend/wallpaper.html
+      - apps/frontend/src/wallpaper/**
+      - apps/frontend/src/styles/wallpaper.css
+      - apps/frontend/tests/browser/wallpaper.spec.ts
+      - apps/frontend/tests/unit/wallpaper-pick.test.ts
   pull_request:
     branches: [main]
     paths-ignore:
       - README.md
       - README_ZH.md
+      # Desktop wallpaper: self-hosted on the visitor's own machine, never deployed here.
+      # A change touching only these paths runs no CI/CD; mixed changes still run it all.
+      - apps/wallpaper-engine/**
+      - apps/desktop/**
+      - apps/frontend/wallpaper.html
+      - apps/frontend/src/wallpaper/**
+      - apps/frontend/src/styles/wallpaper.css
+      - apps/frontend/tests/browser/wallpaper.spec.ts
+      - apps/frontend/tests/unit/wallpaper-pick.test.ts
   workflow_dispatch:
 
 permissions:
