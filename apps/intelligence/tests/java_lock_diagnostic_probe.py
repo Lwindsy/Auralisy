@@ -558,106 +558,88 @@ def round_report_case(root, admin, connect_admin, role, receipt):
     execution = execution_state(admin, event["execution_id"])
     receipt.update(target=event, execution=execution, waiters=[])
     identifier = event["delivery_id"]
-    admin.execute("CREATE TABLE diagnostic_report_gate(id text PRIMARY KEY)")
-    admin.execute("INSERT INTO diagnostic_report_gate VALUES (%s)", (identifier,))
     admin.execute("""
-        CREATE FUNCTION pause_test_report() RETURNS trigger LANGUAGE plpgsql
+        CREATE TABLE diagnostic_report_gate(
+            id text PRIMARY KEY, subject_id text NOT NULL, first_xid xid8
+        );
+        CREATE FUNCTION mark_first_test_report() RETURNS trigger LANGUAGE plpgsql
         SECURITY DEFINER SET search_path=pg_catalog AS $gate$
         BEGIN
-          IF EXISTS (SELECT 1 FROM public.diagnostic_report_gate WHERE id=NEW.id) THEN
-            PERFORM pg_advisory_xact_lock(741701);
-          END IF;
+          UPDATE public.diagnostic_report_gate SET first_xid=pg_current_xact_id() WHERE id=NEW.id;
           RETURN NEW;
         END $gate$;
-        CREATE TRIGGER pause_test_report AFTER INSERT ON discovery.delivery_receipt
-        FOR EACH ROW EXECUTE FUNCTION pause_test_report();
+        CREATE TRIGGER mark_first_test_report AFTER INSERT ON discovery.delivery_receipt
+        FOR EACH ROW EXECUTE FUNCTION mark_first_test_report();
+        CREATE FUNCTION wait_after_test_report_first_commit(subject_key text) RETURNS boolean
+        LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog AS $gate$
+        BEGIN
+          IF EXISTS (
+              SELECT 1 FROM public.diagnostic_report_gate
+              WHERE subject_id=subject_key AND first_xid IS NOT NULL
+                AND first_xid IS DISTINCT FROM pg_current_xact_id_if_assigned()
+          ) THEN
+            PERFORM pg_advisory_xact_lock_shared(741701);
+          END IF;
+          RETURN true;
+        END $gate$;
+        ALTER TABLE discovery.subject ENABLE ROW LEVEL SECURITY;
+        CREATE POLICY test_report_commit_gate ON discovery.subject
+        USING (public.wait_after_test_report_first_commit(id::text));
         """)
-    admin.execute("SELECT pg_advisory_lock(741701)")
-    release = threading.Event()
-    locked = threading.Event()
-    holder = {}
-    errors = []
-
-    def take_subject():
+    admin.execute(
+        "INSERT INTO diagnostic_report_gate(id,subject_id) VALUES (%s,%s)",
+        (identifier, execution["subject_id"]),
+    )
+    # Only this fixture's online role waits at the commit boundary. A prepared
+    # administrator connection takes the physical subject lock before opening it.
+    with connect_admin(autocommit=False) as locker:
+        admin.execute("SELECT pg_advisory_lock(741701)")
+        gate_open = False
         try:
-            with connect_admin(autocommit=False) as locker:
-                holder["pid"] = locker.info.backend_pid
-                locker.execute("SET LOCAL statement_timeout='15s'")
-                locker.execute(
-                    "SELECT id FROM discovery.subject WHERE id=%s FOR UPDATE",
-                    (execution["subject_id"],),
+            (root / "send-probe-delivery").touch()
+
+            def committed_report():
+                return admin.execute(
+                    "SELECT id FROM discovery.delivery_receipt WHERE id=%s", (identifier,)
                 ).fetchone()
-                locked.set()
-                if not release.wait(12):
-                    raise TimeoutError("missing event: release ROUND_REPORT subject")
-        except Exception as error:
-            errors.append(str(error))
 
-    thread = threading.Thread(target=take_subject, daemon=True)
-    try:
-        (root / "send-probe-delivery").touch()
+            receipt["committed_before_error"] = wait_for(
+                committed_report,
+                timeout=8,
+                description="committed first ROUND_REPORT transaction",
+            )
+            assert locker.execute(
+                "SELECT id FROM discovery.subject WHERE id=%s FOR UPDATE",
+                (execution["subject_id"],),
+            ).fetchone()
+            receipt.update(lock_pid=locker.info.backend_pid, locked_at=time.time())
+            admin.execute("SELECT pg_advisory_unlock(741701)")
+            gate_open = True
 
-        def first_transaction_waiting():
-            return next(
-                (
+            def second_transaction_waiting():
+                return [
                     row
                     for row in waiting_backends(admin, role, receipt)
-                    if row["wait_event"] == "advisory" and admin.info.backend_pid in row["blockers"]
-                ),
-                None,
+                    if locker.info.backend_pid in row["blockers"]
+                ]
+
+            wait_for(
+                second_transaction_waiting,
+                timeout=5,
+                description="second ROUND_REPORT transaction waiting on the subject",
             )
-
-        first = wait_for(
-            first_transaction_waiting,
-            timeout=8,
-            description="first ROUND_REPORT transaction at trigger",
-        )
-        thread.start()
-
-        def queued_subject():
-            return (
-                holder.get("pid")
-                and first["pid"]
-                in admin.execute(
-                    "SELECT pg_blocking_pids(%s) AS blocked", (holder["pid"],)
-                ).fetchone()["blocked"]
+            receipt["report_failure"] = require_event(
+                root,
+                "callback_http",
+                delivery_id=identifier,
+                status=500,
             )
-
-        wait_for(
-            queued_subject, timeout=6, description="administrator queued behind first transaction"
-        )
-        admin.execute("SELECT pg_advisory_unlock(741701)")
-        if not locked.wait(8):
-            raise TimeoutError(f"missing event: administrator acquired subject row ({errors})")
-        receipt.update(lock_pid=holder["pid"], locked_at=time.time())
-        receipt["committed_before_error"] = admin.execute(
-            "SELECT id FROM discovery.delivery_receipt WHERE id=%s", (identifier,)
-        ).fetchone()
-        assert receipt["committed_before_error"], event
-
-        def second_transaction_waiting():
-            return [
-                row
-                for row in waiting_backends(admin, role, receipt)
-                if holder["pid"] in row["blockers"]
-            ]
-
-        wait_for(
-            second_transaction_waiting,
-            timeout=5,
-            description="second ROUND_REPORT transaction waiting on the subject",
-        )
-        receipt["report_failure"] = require_event(
-            root, "callback_http", delivery_id=identifier, status=500
-        )
-        assert receipt["report_failure"]["retry_disposition"] == "STOP"
-    finally:
-        admin.execute("SELECT pg_advisory_unlock(741701)")
-        release.set()
-        if thread.ident:
-            thread.join(16)
-        receipt["released_at"] = time.time()
-    assert not errors, errors
+            assert receipt["report_failure"]["retry_disposition"] == "STOP"
+        finally:
+            if not gate_open:
+                admin.execute("SELECT pg_advisory_unlock(741701)")
+            locker.rollback()
+            receipt["released_at"] = time.time()
     return event["execution_id"], identifier
 
 
