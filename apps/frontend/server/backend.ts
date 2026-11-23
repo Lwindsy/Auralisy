@@ -126,13 +126,15 @@ export function auralisyBackend({ fixture }: { fixture: boolean }): Plugin {
       if (fixture)
         server.middlewares.use(async (req, res, next) => {
           const path = new URL(req.url ?? "/", "http://localhost").pathname;
-          if (path !== "/" && path !== "/index.html") return next();
+          const page =
+            path === "/" || path === "/index.html"
+              ? "index.html"
+              : path === "/wallpaper.html"
+                ? "wallpaper.html"
+                : null;
+          if (!page) return next();
           const html = await readFile(
-            resolve(
-              server.config.root,
-              server.config.build.outDir,
-              "index.html",
-            ),
+            resolve(server.config.root, server.config.build.outDir, page),
             "utf8",
           );
           res

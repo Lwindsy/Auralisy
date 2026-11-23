@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import { auralisyBackend } from "./server/backend.ts";
@@ -14,6 +15,11 @@ export default defineConfig(({ mode }) => {
       target: "es2022",
       sourcemap: false,
       rolldownOptions: {
+        // Two pages share one build: the website and the desktop wallpaper.
+        input: {
+          main: fileURLToPath(new URL("index.html", import.meta.url)),
+          wallpaper: fileURLToPath(new URL("wallpaper.html", import.meta.url)),
+        },
         output: {
           // Three long-lived pieces instead of one: React, the generated contract
           // validators, and the app itself. Each changes on its own schedule, so a
