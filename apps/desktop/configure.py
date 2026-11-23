@@ -17,8 +17,9 @@ from auralisy_intelligence.recall import WeightConfig
 HERE = Path(__file__).resolve().parent
 DATA = Path("/bundle")
 CONFIG = Path("/config")
-MODEL = "gpt-5.4-mini-2026-03-17"
-PRICE_SOURCE = "https://developers.openai.com/api/docs/models/gpt-5.4-mini"
+# Standard tier, the same binding and rates as the local real preview baseline.
+MODEL = "gpt-6.1-terra"
+PRICE_SOURCE = "https://developers.openai.com/api/docs/pricing"
 
 
 def read(path: Path) -> dict:
@@ -62,16 +63,17 @@ def main() -> None:
         config.update(
             ref=f"desktop-{role}",
             model=MODEL,
-            price_revision="desktop-openai-5.4-mini-2026-03-17",
+            price_revision="openai-standard-2026-11-07",
             price_source=PRICE_SOURCE,
-            input_microusd_per_million=750_000,
-            cached_input_microusd_per_million=75_000,
-            output_microusd_per_million=4_500_000,
+            input_microusd_per_million=1_000_000,
+            cached_input_microusd_per_million=50_000,
+            output_microusd_per_million=5_000_000,
             search_microusd_per_call=10_000,
-            reasoning_effort="none",
             live_enabled=not synthetic,
         )
+        # As in the baseline's terra binding: standard tier, the model's own reasoning.
         config.pop("service_tier", None)
+        config.pop("reasoning_effort", None)
         if role == "screen":
             # Hosted search has a 128k context window. Include room for request framing.
             config["max_input_tokens"] = 132_000
