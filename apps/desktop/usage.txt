@@ -1,0 +1,155 @@
+Auralisy Desktop Wallpaper
+==========================
+
+English
+
+Prerequisites: Windows with Docker Desktop running Linux containers, the Docker Compose plugin,
+Python 3.11+, Wallpaper Engine for displaying the wallpaper, an approved v2 catalog
+ZIP, a separately approved recall snapshot, and your own OpenAI API key.
+Docker builds Java, Python and the website from this
+checkout. Node and Java are installed in the build containers.
+
+Run from the repository root in PowerShell:
+
+    .\apps\desktop\desktop.cmd start --bundle "D:\path\auralisy-desktop-v19.zip" --recall-snapshot "D:\path\snapshot"
+    .\apps\desktop\desktop.cmd status
+    .\apps\desktop\desktop.cmd stop
+
+The snapshot directory contains dataset.json, album_tags.npz and interactions.npz.
+Python mounts it read-only. On first start, give both paths and enter the OpenAI key
+at the hidden prompt. Later starts reuse both paths and ask for the key again. For noninteractive
+launch, supply AURALIS_PRODUCT_TEST_API_KEY in the launching process's environment.
+The key goes to the Python container. Docker administrators can inspect container
+environment variables while the service is installed. The launcher generates the
+database passwords, internal token and anonymous-cookie signing key and stores
+them in its ignored local state directory. Keep that directory and the database
+volume together to preserve sessions. Stop removes the containers, releases
+the port and preserves the volume and local state. A failed boot also stops the
+desktop project and preserves its state for troubleshooting.
+
+Open http://127.0.0.1:4180/wallpaper.html to check the page. In Wallpaper Engine,
+choose Open from File and select apps/wallpaper-engine/project.json. Apply it
+to your monitor. After changing the address, language or Wallpaper Engine's FPS,
+reload the wallpaper so the launcher can pass the settings to the page. Each
+monitor has its own anonymous session and today's album marker. The wallpaper
+changes the album at 08:00 local time using already available candidates. Select
+genres and explicitly start a recommendation to request fresh results.
+
+Use --port to choose a different loopback port. If the port is taken, rerun
+the same start command with a free port. A stopped install can reuse its state,
+catalog and database volume with the new port. Set Wallpaper Engine's Local
+Auralisy service property to http://127.0.0.1:<port> and reload. For a separate
+install, give start, status and stop the same --state <directory>. Choose a state
+directory outside Git checkouts or under this checkout's ignored apps/desktop/.local
+or local-data. An installed state accepts the same ZIP again by SHA-256.
+For an approved HTTPS source, pass --bundle <url> --sha256 <zip-sha256>. The source
+must be supplied by the operator. A compatible catalog is distributed separately
+only if its license and hosting have been approved.
+
+To create a v2 ZIP from an approved read-only PostgreSQL 18/V19 source, put psql
+on PATH. Give --source the name of a libpq service configured for the active
+catalog and audience. libpq reads credentials from its service or password file.
+
+    .\apps\desktop\desktop.cmd export-bundle --source auralis_desktop_export --audience "<audience.json>" --index "<Lucene directory>" --taxonomy "<app016-v2 directory>" --curated "<curated directory>" --output "<new ZIP>"
+
+The ZIP contains seven active-catalog projections, aggregate audience counts,
+the Lucene index, taxonomy, reference and the ten curated entries. Supply the
+recall snapshot separately after approval. Older desktop ZIPs need to be
+re-exported with the v2 command. A different catalog uses a new state directory.
+
+The default hard ledger limits are US$0.50 per session and US$0.30 per round.
+Each round initially assigns 60% to foreground and 40% to background. A round allows
+40 model calls, 12 searches and 60 reads. Use --session-microusd and
+--round-microusd on first start to change the limits. 1,000,000 microdollars equals
+US$1. The application reserves model costs at the configured rates before sending
+and settles actual usage. It has no installation-wide or provider account limit.
+Different monitors and sessions each use a separate session budget. Monitor your
+account's usage. The default model is the standard GPT-5.4 mini snapshot,
+gpt-5.4-mini-2026-03-17, with one concurrent recommendation execution. See
+https://developers.openai.com/api/docs/models/gpt-5.4-mini and
+https://developers.openai.com/api/docs/pricing for the configured rate sources.
+
+The four container memory ceilings are 1 GiB PostgreSQL, 2 GiB Java, 3 GiB Python,
+and 128 MiB Caddy, totaling 6.125 GiB. Docker Desktop itself uses additional memory.
+The offline preparation containers run before the online stack. The four idle
+containers used about 547 MiB with the 24-album smoke catalog, excluding Docker
+Desktop and Wallpaper Engine. Check actual use in Docker Desktop after loading
+your catalog.
+
+Try the stack without a data ZIP or key using a separate state directory:
+
+    .\apps\desktop\desktop.cmd start --synthetic --state local-data/desktop-smoke --port 44180
+    .\apps\desktop\desktop.cmd status --state local-data/desktop-smoke
+    .\apps\desktop\desktop.cmd stop --state local-data/desktop-smoke
+
+Synthetic mode generates a small Jazz catalog and uses the repository's
+synthetic model, search and page adapters with test prices. It exercises startup and the same-origin
+API without a paid model call. It leaves out the real search index and curated albums.
+On macOS and Linux, the equivalent entry point is python3 apps/desktop/desktop.py.
+Wallpaper Engine import is intended for Windows.
+
+中文
+
+需要 Windows、运行 Linux 容器的 Docker Desktop、Docker Compose 插件、Python 3.11+、
+Wallpaper Engine、获准使用的 v2 目录 ZIP、另行获准的召回快照，以及自己的 OpenAI API 密钥。
+Docker 从当前代码构建 Java、Python 和网页，构建所需的 Node 和 Java 由容器提供。
+
+在仓库根目录的 PowerShell 中运行：
+
+    .\apps\desktop\desktop.cmd start --bundle "D:\path\auralisy-desktop-v19.zip" --recall-snapshot "D:\path\snapshot"
+    .\apps\desktop\desktop.cmd status
+    .\apps\desktop\desktop.cmd stop
+
+召回快照目录需含 dataset.json、album_tags.npz 和 interactions.npz，Python 以只读方式挂载。
+首次启动提供两个路径，再在隐藏输入提示中填写 OpenAI 密钥。以后启动复用已安装的目录和快照，
+重新输入密钥。也可用当前启动进程的环境变量 AURALIS_PRODUCT_TEST_API_KEY 无交互提供。
+密钥只注入 Python 容器，拥有 Docker 管理权限的本机用户可以查看运行容器的环境变量。
+启动器生成数据库密码、内部令牌和匿名 Cookie 签名密钥，保存在 Git 忽略的本机状态目录。
+请把状态目录和数据库卷一起保留，才能继续使用原会话。停止会移除容器并释放端口，保留卷和
+本机状态。若启动失败，启动器关闭桌面项目，保留状态供排查。
+
+先打开 http://127.0.0.1:4180/wallpaper.html 检查网页。在 Wallpaper Engine 中选择
+“从文件打开”，选 apps/wallpaper-engine/project.json，再应用到显示器。
+修改地址、语言或 Wallpaper Engine 帧率后，重新加载壁纸以传递属性。每台显示器各有一个
+匿名会话并保存自己的“今日唱片”标记。壁纸按本机时间早上 8 点从已有候选换片，也能手动翻片。
+需要新推荐时选风格并主动发起。
+
+用 --port 选择回环端口。端口被占用时，改用空闲端口并重跑原启动命令。停机后可在原状态目录
+改端口，继续使用已导入目录和数据库卷。请把 Wallpaper Engine 的“本机服务地址”设置为
+http://127.0.0.1:<端口> 并重新加载。另建实例时，start、status、stop 使用同一个
+--state <目录>。状态目录可选 Git 工作区外的路径，或当前工作区已忽略的
+apps/desktop/.local 和 local-data 下的路径。再次提供同一个 ZIP 时按 SHA-256 复用已有目录。
+获准的 HTTPS 数据包可用 --bundle <网址> --sha256 <ZIP 摘要>。
+运行者需要提供来源。配套目录仅在许可和托管方式获准后另行分发。
+
+导出 v2 ZIP 时，准备可用的 PostgreSQL 18 psql。--source 填获准读取 V19 活动目录及听众快照的
+libpq 服务名。凭据由 libpq 从服务文件或口令文件读取。
+
+    .\apps\desktop\desktop.cmd export-bundle --source auralis_desktop_export --audience "<audience.json>" --index "<Lucene 索引目录>" --taxonomy "<app016-v2 目录>" --curated "<策展目录>" --output "<新 ZIP>"
+
+ZIP 收录七张活动目录表的所需列、专辑汇总听众数、Lucene 索引、风格与参考文件、十条策展工件。
+逐听众明细与召回矩阵留在各自的数据源。召回快照获准后另行提供。旧目录 ZIP 需重新导出为 v2，
+更换目录包时使用新的状态目录。
+
+默认账本硬上限每会话 0.50 美元、每轮 0.30 美元，轮次额度初始按前台 60%、后台 40% 分配。
+每轮最多 40 次模型、12 次搜索、60 次读取。首次启动用 --session-microusd 和
+--round-microusd 调整，1,000,000 微美元等于 1 美元。应用按配置费率在发送前预留，
+再按实际用量结算。各显示器和各新会话分别计算额度，应用没有整套安装或供应商账号级限额。
+请查看自己账号的用量。默认模型为标准档 GPT-5.4 mini 快照 gpt-5.4-mini-2026-03-17，
+同时运行一轮推荐。费率依据见 https://developers.openai.com/api/docs/models/gpt-5.4-mini
+和 https://developers.openai.com/api/docs/pricing 。
+
+四个容器的内存上限分别为 PostgreSQL 1 GiB、Java 2 GiB、Python 3 GiB、Caddy 128 MiB，
+合计 6.125 GiB。Docker Desktop 自身还有额外占用。离线准备容器在常驻服务启动前运行。
+24 张专辑的合成目录空闲时，四个容器合计约 547 MiB，另计 Docker Desktop 和 Wallpaper Engine。
+实际占用可在加载所用目录后从 Docker Desktop 查看。
+
+也可以用独立状态目录试运行，不用给数据 ZIP 或密钥：
+
+    .\apps\desktop\desktop.cmd start --synthetic --state local-data/desktop-smoke --port 44180
+    .\apps\desktop\desktop.cmd status --state local-data/desktop-smoke
+    .\apps\desktop\desktop.cmd stop --state local-data/desktop-smoke
+
+合成模式生成一个小型爵士目录，使用仓库的合成模型、搜索和网页适配器及测试费率，能验证启动与同源 API，
+不会产生模型费用。此模式省略真实搜索索引和策展专辑。macOS 和 Linux 可尝试用
+python3 apps/desktop/desktop.py 调用相同的运行入口。壁纸导入步骤适用于 Windows。
