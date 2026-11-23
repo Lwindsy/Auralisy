@@ -2,11 +2,34 @@
 
 import hashlib
 import json
+from unittest.mock import Mock
 
+import pytest
+from auralisy_intelligence.agents import CallDenied
 from auralisy_intelligence.agents.demo import DemoHarness
 from auralisy_intelligence.contracts import validate_definition
-from auralisy_intelligence.evaluation.genre_preferences import _case_start, build_plan
-from auralisy_intelligence.providers import ModelBinding
+from auralisy_intelligence.evaluation.genre_preferences import (
+    RecordingAdapter,
+    _case_start,
+    build_plan,
+)
+from auralisy_intelligence.providers import ModelBinding, OpenAIResponsesAdapter
+
+
+@pytest.mark.parametrize("bounds", [None, (1, 1)])
+def test_recording_adapter_delegates_search_bounds_and_query_validation(bounds):
+    provider = Mock(spec=OpenAIResponsesAdapter)
+    provider.search_token_bounds = bounds
+    recording = RecordingAdapter(provider)
+    query = ("Artist Album review", ("allow.example",), ("block.example",))
+
+    assert recording.search_token_bounds == bounds
+    recording.check_query(*query)
+    provider.check_query.assert_called_once_with(*query)
+
+    provider.check_query.side_effect = CallDenied("SEARCH_DOMAIN_SCOPE_INVALID")
+    with pytest.raises(CallDenied, match="SEARCH_DOMAIN_SCOPE_INVALID"):
+        recording.check_query(*query)
 
 
 def test_preflight_hashes_inputs_and_prices_without_enabling_live_calls(tmp_path):

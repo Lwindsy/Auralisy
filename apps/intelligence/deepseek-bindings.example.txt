@@ -1,0 +1,17 @@
+Budget notes for deepseek-bindings.example.json / DeepSeek 绑定示例预算说明
+
+At peak rates with long_write.max_output_tokens set to 12000, each in-flight
+Pro long review reserves about US$0.06–0.07. Set the background lane to at least
+US$0.07 per concurrent long review, or about US$0.50 for six cards. The reservation
+is an upper bound. Observed settlement was about US$0.005–0.018 per review.
+Pro calls took about 20–70 seconds in the smoke test. An execution defaults to
+a 120-second time limit.
+
+按示例的 long_write.max_output_tokens 12000 与高峰费率，每篇在途 Pro 长评
+预留约 0.06–0.07 美元。后台车道至少按「同时生成的长评数 × 0.07 美元」配置，
+6 张卡可按约 0.50 美元准备。预留是上限，实测单篇结算约 0.005–0.018 美元。
+冒烟中 Pro 单次调用约 20–70 秒，单次执行的缺省时限为 120 秒。
+
+Setup and round/session caps / 启动和轮次／会话额度
+See the DeepSeek section of apps/runtime/usage.txt.
+见 apps/runtime/usage.txt 的 DeepSeek 小节。

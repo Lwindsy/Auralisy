@@ -33,7 +33,9 @@ Prepare / 准备
    AURALIS_DATABASE_PASSWORD        ordinary Java online role
    AURALIS_SERVICE_TOKEN            both internal HTTP directions
    AURALIS_SUBJECT_SECRET           independent, stable anonymous-identity signing key
-   AURALIS_PRODUCT_TEST_API_KEY     product-purpose provider key, Python only
+   AURALIS_PRODUCT_TEST_API_KEY     OpenAI key, Python only
+   For a DeepSeek deployment, use AURALIS_DEEPSEEK_API_KEY for Python instead.
+   DeepSeek 部署改为只向 Python 提供 AURALIS_DEEPSEEK_API_KEY。
    Use separate cryptographically random values; service token is URL-safe 32-256
    characters, subject secret URL-safe 43-256 characters. Keep the subject key across
    ordinary restarts. Store operational credentials in the OS/platform secret facility.
@@ -46,7 +48,8 @@ Using DeepSeek / 使用 DeepSeek
 Choose model_provider "deepseek" in agent-service.json and use
 AURALIS_DEEPSEEK_API_KEY as provider_key_env. Use the example files
 apps/intelligence/agent-service.deepseek.example.json and deepseek-bindings.example.json
-under apps/intelligence. Set the artifact paths and matching audience binding. Set
+under apps/intelligence. Budget notes are beside the bindings in
+deepseek-bindings.example.txt. Set the artifact paths and matching audience binding. Set
 live_enabled to true only on bindings approved for paid use. Export matching Java
 model_bindings and prices from the same role bindings file:
 
@@ -54,7 +57,15 @@ model_bindings and prices from the same role bindings file:
 
 Merge the two generated sections into the Java recommendation configuration and
 set explicit session, round and lane budgets. Example prices use DeepSeek peak
-rates. Local quotas are 600 rpm / 2M tpm for Flash and 120 rpm / 600K tpm for Pro.
+rates. With long_write.max_output_tokens set to 12000, reserve about US$0.06–0.07
+per in-flight Pro long review. Set the background lane to at least US$0.07 times
+the number of long reviews that can run at once. Allow about US$0.50 for six cards
+and size the round and session caps to cover the foreground lane as well.
+The reservation is an upper bound. Observed settlement per long review was about
+US$0.005–0.018. A Pro call took about 20–70 seconds in the smoke test, and each
+execution has a default time limit of 120 seconds.
+
+Local quotas are 600 rpm / 2M tpm for Flash and 120 rpm / 600K tpm for Pro.
 Search and screen share the Flash queue. DeepSeek's standalone Search account
 limit is separate. Java settles a successful empty result at 750 microdollars.
 DeepSeek bills only a successful nonempty result. If the supplier returns hits
@@ -64,8 +75,15 @@ configurations keep their current provider and key.
 
 单套部署选择一个供应商。按 DeepSeek 示例填写工件、Audience 绑定和密钥变量，
 经付费授权后才启用 live_enabled。从同一角色绑定生成 Java 配置的 model_bindings
-和 prices，再配置会话、轮次和车道硬预算。示例使用高峰费率，以及 Flash 600 RPM /
-200 万 TPM、Pro 120 RPM / 60 万 TPM 的本地配额。搜索与 screen 共用 Flash 队列，
+和 prices，再配置会话、轮次和车道硬预算。预算速查见绑定示例旁的
+deepseek-bindings.example.txt。按示例的 long_write.max_output_tokens 12000
+与高峰费率，每篇在途 Pro 长评预留约 0.06–0.07 美元。后台车道至少按「同时
+生成的长评数 × 0.07 美元」配置，6 张卡可按约 0.50 美元准备。会话与轮次额度
+还要覆盖前台车道。预留是上限，实测单篇结算约 0.005–0.018 美元。冒烟中
+Pro 单次调用约 20–70 秒，单次执行的缺省时限为 120 秒。
+
+本地配额为 Flash 600 RPM / 200 万 TPM、Pro 120 RPM / 60 万 TPM。
+搜索与 screen 共用 Flash 队列，
 供应商独立 Search 接口另有账号限额。原始 results 为空时 Java 结算 750 微美元，
 DeepSeek 不计费。若搜索有结果但本地全部滤掉，两方均计费。部署前自行核实
 DeepSeek 的训练用途及独立 Search 留存政策。现有 OpenAI 配置及正式环境沿用原供应商。
