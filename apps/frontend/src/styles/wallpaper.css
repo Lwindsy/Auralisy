@@ -1,0 +1,414 @@
+/* Desktop wallpaper. One record a day, hung like a print: the whole screen takes the
+   sleeve's colour, the left edge stays quiet for desktop icons, and the bottom stays clear
+   of the taskbar. Sizes follow the screen (vmin / vh) so 1080p, 4K, 21:9 and portrait
+   monitors all get the same composition. Wallpaper Engine passes only the mouse. */
+
+:root[data-surface="wallpaper"] {
+  --wall-icons: clamp(96px, 8vw, 180px);
+  --wall-taskbar: 56px;
+  --wall-edge: clamp(24px, 3vmin, 64px);
+  overflow: hidden;
+}
+
+:root[data-surface="wallpaper"] body {
+  overflow: hidden;
+}
+
+/* Genres only: the single door opens at once and takes the whole row. */
+.entry[data-single] .doors {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.entry[data-single] .door__face .face__fold {
+  visibility: hidden;
+}
+
+/* Narrow (portrait) screens stack the website's three doors in three rows; the single
+   door takes the one row and all of its height. */
+@media (max-width: 760px) {
+  .entry[data-single] .doors {
+    grid-template-rows: minmax(0, 1fr);
+  }
+}
+
+.stage[data-surface="wallpaper"][data-stage="gallery"] {
+  min-height: 100dvh;
+}
+
+.wall {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  display: grid;
+  grid-template-columns:
+    var(--wall-icons) minmax(0, min(38vw, 66vh)) minmax(4vw, 1fr)
+    auto minmax(6vw, 1fr);
+  align-items: center;
+  color: var(--page-ink);
+  padding-bottom: var(--wall-taskbar);
+}
+
+.wall__sleeve {
+  grid-column: 4;
+  grid-row: 1;
+  position: relative;
+  width: min(34vw, 58vh);
+  aspect-ratio: 1;
+  animation: wall-in 900ms var(--ease) both;
+}
+
+.wall__cover {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  box-shadow: 0 3vmin 6vmin -2vmin rgb(0 0 0 / 0.55);
+  transition: filter 600ms;
+}
+
+.wall__vinyl {
+  position: absolute;
+  top: 3%;
+  left: 28%;
+  width: 94%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background:
+    radial-gradient(
+      circle,
+      transparent 0 30%,
+      rgb(255 255 255 / 0.05) 30.5% 31%,
+      transparent 31.5%
+    ),
+    repeating-radial-gradient(
+      circle,
+      #141414 0 0.18vmin,
+      #1f1f1f 0.18vmin 0.38vmin
+    );
+  box-shadow: 0 2vmin 4vmin -2vmin rgb(0 0 0 / 0.6);
+  animation: wall-spin 48s linear infinite;
+}
+
+.wall__vinyl::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 30deg,
+    transparent 0 12%,
+    rgb(255 255 255 / 0.08) 18%,
+    transparent 26% 62%,
+    rgb(255 255 255 / 0.06) 68%,
+    transparent 76%
+  );
+}
+
+.wall__vinyl i {
+  position: absolute;
+  inset: 34%;
+  border-radius: 50%;
+  background: var(--spark, var(--page-ink));
+}
+
+.wall__vinyl i::after {
+  content: "";
+  position: absolute;
+  inset: 44%;
+  border-radius: 50%;
+  background: #0c0c0c;
+}
+
+.wall__stamp {
+  position: absolute;
+  z-index: 2;
+  left: 50%;
+  top: 50%;
+  padding: 1vmin 1.8vmin 1vmin 2.2vmin;
+  border: 0.25vmin solid #fff;
+  color: #fff;
+  font: 700 2vmin/1 var(--font-sans);
+  letter-spacing: 0.3em;
+  opacity: 0;
+  transform: translate(-50%, -50%) rotate(-8deg) scale(1.2);
+  transition:
+    opacity 300ms,
+    transform 400ms var(--ease);
+}
+
+.wall[data-heard] .wall__cover {
+  filter: brightness(0.55) saturate(0.5);
+}
+
+.wall[data-heard] .wall__stamp {
+  opacity: 1;
+  transform: translate(-50%, -50%) rotate(-8deg);
+}
+
+.wall__text {
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+  animation: wall-in 900ms 120ms var(--ease) both;
+}
+
+.wall__eyebrow {
+  font-size: clamp(11px, 1.15vmin, 18px);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  opacity: 0.75;
+}
+
+.wall__title {
+  margin: 1.6vmin 0 1.2vmin;
+  font: 700 clamp(40px, 7.4vmin, 150px) / 0.95 var(--font-sans);
+  font-stretch: 74%;
+  letter-spacing: -0.005em;
+  text-transform: uppercase;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+}
+
+.wall__artist {
+  font: 500 clamp(18px, 2.4vmin, 44px) / 1.3 var(--font-sans);
+}
+
+.wall__love {
+  color: var(--spark, var(--page-ink));
+}
+
+.wall__meta {
+  margin-top: 0.8vmin;
+  font-size: clamp(11px, 1.1vmin, 17px);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+
+.wall__review {
+  max-width: 46ch;
+  margin-top: 2.8vmin;
+  padding-top: 2.2vmin;
+  border-top: 1px solid color-mix(in srgb, currentColor 30%, transparent);
+  font-size: clamp(14px, 1.6vmin, 26px);
+  line-height: 1.85;
+  opacity: 0.92;
+  display: -webkit-box;
+  -webkit-line-clamp: 7;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.wall__foot {
+  position: fixed;
+  z-index: 2;
+  right: var(--wall-edge);
+  bottom: calc(var(--wall-taskbar) + var(--wall-edge) * 0.6);
+  font-size: clamp(11px, 1.1vmin, 17px);
+  letter-spacing: 0.1em;
+  opacity: 0.72;
+  color: var(--page-ink);
+}
+
+.wall__controls {
+  position: fixed;
+  z-index: 3;
+  left: var(--wall-icons);
+  bottom: calc(var(--wall-taskbar) + var(--wall-edge) * 0.5);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  opacity: 0;
+  transform: translateY(6px);
+  transition:
+    opacity 250ms,
+    transform 350ms var(--ease);
+}
+
+.wall:hover .wall__controls,
+.wall:focus-within .wall__controls,
+.wall[data-reading] .wall__controls {
+  opacity: 1;
+  transform: none;
+}
+
+.wall__controls button,
+.wall__button {
+  min-width: 44px;
+  padding: 10px 16px;
+  border: 1px solid currentColor;
+  background: color-mix(in srgb, var(--page-room) 70%, transparent);
+  color: var(--page-ink);
+  font: 500 clamp(13px, 1.2vmin, 18px) / 1 var(--font-sans);
+  cursor: pointer;
+}
+
+.wall__controls button[aria-pressed="true"] {
+  background: var(--page-ink);
+  color: var(--page-room);
+}
+
+.wall__controls button:disabled,
+.wall__button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.wall__controls button:focus-visible,
+.wall__button:focus-visible {
+  outline: 2px solid var(--spark, var(--page-ink));
+  outline-offset: 2px;
+}
+
+.wall__finish {
+  position: fixed;
+  z-index: 3;
+  right: var(--wall-edge);
+  bottom: calc(var(--wall-taskbar) + var(--wall-edge) * 1.6 + 16px);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: var(--page-ink);
+}
+
+.wall__notice {
+  font-size: clamp(14px, 1.4vmin, 22px);
+  margin-right: 6px;
+}
+
+.wall--empty {
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 20px;
+}
+
+.wall--empty .wall__finish {
+  position: static;
+}
+
+/* The long review: a sheet over the right half, read with the mouse wheel. */
+.sheet {
+  position: fixed;
+  z-index: 4;
+  top: var(--wall-edge);
+  right: var(--wall-edge);
+  bottom: calc(var(--wall-taskbar) + var(--wall-edge) * 2 + 40px);
+  width: min(46vw, 80vh);
+  overflow-y: auto;
+  padding: 3.4vmin 3.6vmin;
+  background: color-mix(in oklab, var(--page-room) 93%, var(--page-ink));
+  border: 1px solid color-mix(in srgb, var(--page-ink) 18%, transparent);
+  box-shadow: 0 3vmin 8vmin -3vmin rgb(0 0 0 / 0.6);
+  color: var(--page-ink);
+  animation: wall-in 500ms var(--ease) both;
+  scrollbar-width: thin;
+}
+
+.sheet__head {
+  font-size: clamp(11px, 1.1vmin, 17px);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+
+.sheet__body p {
+  margin-top: 1.6em;
+  font-size: clamp(14px, 1.55vmin, 24px);
+  line-height: 1.9;
+}
+
+.sheet__status {
+  display: grid;
+  gap: 16px;
+  justify-items: start;
+  margin-top: 2em;
+  font-size: clamp(14px, 1.5vmin, 22px);
+}
+
+.wall-toast {
+  position: fixed;
+  z-index: 5;
+  left: 50%;
+  bottom: calc(var(--wall-taskbar) + var(--wall-edge));
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  max-width: min(720px, 86vw);
+  padding: 10px 14px 10px 16px;
+  background: color-mix(in srgb, var(--page-room) 80%, #000);
+  color: var(--page-ink);
+  font-size: 14px;
+}
+
+.wall-toast button {
+  padding: 8px 12px;
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+  font: 500 13px/1 var(--font-sans);
+  cursor: pointer;
+}
+
+.wall-toast button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Portrait monitors: sleeve on top, words below, the same quiet left edge. */
+@media (orientation: portrait) {
+  .wall {
+    grid-template-columns: var(--wall-icons) minmax(0, 1fr) var(--wall-edge);
+    grid-template-rows: minmax(4vh, 1fr) auto 5vh auto minmax(6vh, 1.4fr);
+    align-items: start;
+  }
+
+  .wall__sleeve {
+    grid-column: 2;
+    grid-row: 2;
+    width: min(62vw, 40vh);
+  }
+
+  .wall__text {
+    grid-column: 2;
+    grid-row: 4;
+    max-width: 78vw;
+  }
+
+  .wall__title {
+    font-size: clamp(40px, 8.4vmin, 150px);
+  }
+
+  .wall__review {
+    -webkit-line-clamp: 9;
+    font-size: clamp(14px, 2vmin, 28px);
+  }
+
+  .sheet {
+    top: auto;
+    left: var(--wall-icons);
+    width: auto;
+    height: 52vh;
+  }
+}
+
+@keyframes wall-in {
+  from {
+    opacity: 0;
+    transform: translateY(1.2vmin);
+  }
+}
+
+@keyframes wall-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wall__vinyl {
+    animation: none;
+  }
+}
