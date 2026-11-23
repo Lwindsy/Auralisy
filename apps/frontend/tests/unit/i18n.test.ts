@@ -51,6 +51,19 @@ describe("interface language", () => {
     expect(i18n.chosen).toBe(false);
   });
 
+  test("both privacy notices identify a third-party model provider by category", () => {
+    expect(en.app.privacy.points).toContain(
+      "May be processed by a third-party model provider",
+    );
+    expect(en.app.privacy.full).toContain(
+      "A third-party model provider may process relevant input",
+    );
+    expect(zhCN.app.privacy.points).toContain("可能经第三方模型供应商处理");
+    expect(zhCN.app.privacy.full).toContain(
+      "相关输入可能由第三方模型供应商处理",
+    );
+  });
+
   test("the English dictionary covers exactly the Chinese keys", () => {
     expect(shape(en)).toEqual(shape(zhCN));
   });

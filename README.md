@@ -12,7 +12,7 @@ Auralisy helps you find your next album. Start with a record you love, pick a fe
 2. Choose **Familiar** to stay close to your tastes, **Explore** to branch out, or **Surprise** to go further afield.
 3. Browse albums as they arrive. Each card has a short review, and you can open a longer one to read more about the sound. If you already know an album, choose **Heard it** and Auralisy will look for another suggestion.
 
-Switch between English and Chinese in the top-left corner. You can close the tab and come back to your recommendations in the same browser. Auralisy keeps submitted preferences and recommendations for 30 days after your last active use. The privacy details at the bottom of the site explain what gets stored and when OpenAI may process your input.
+Switch between English and Chinese in the top-left corner. You can close the tab and come back to your recommendations in the same browser. Auralisy keeps submitted preferences and recommendations for 30 days after your last active use. The privacy details at the bottom of the site explain what gets stored and when a third-party model provider may process your input.
 
 ## Run the interface locally
 
@@ -31,7 +31,7 @@ Open [http://127.0.0.1:4173](http://127.0.0.1:4173) to try the interface with sa
 - [Backend](apps/backend/pom.xml) — Java 21 and Spring Boot serve the catalog and manage sessions and recommendations.
 - [Recommendation service](apps/intelligence/pyproject.toml) — Python finds candidate albums, checks source material and generates reviews.
 
-Running the full service requires a catalog index, matching music data, PostgreSQL and model credentials. The public checkout includes the application and a sample-data interface. See the [Linux deployment guide](apps/runtime/deployment.txt) or [Windows runtime guide](apps/runtime/usage.txt) for the required files, configuration and database migrations.
+Running the full service requires a catalog index, matching music data, PostgreSQL and model credentials. Each deployment can use OpenAI or DeepSeek. The public checkout includes the application and a sample-data interface. See the [Linux deployment guide](apps/runtime/deployment.txt) or [Windows runtime guide](apps/runtime/usage.txt) for the required files, configuration and database migrations.
 
 ## License
 
