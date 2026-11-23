@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>Auralisy</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #0d1220;
+        color: #efe9df;
+        font-family: "Microsoft YaHei UI", "PingFang SC", system-ui, sans-serif;
+      }
+      main {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-content: center;
+        gap: 14px;
+        padding: 0 12vw;
+        text-align: left;
+      }
+      h1 {
+        margin: 0;
+        font-size: clamp(28px, 4vmin, 64px);
+        font-weight: 600;
+        letter-spacing: 0.02em;
+      }
+      p {
+        margin: 0;
+        max-width: 48em;
+        font-size: clamp(14px, 1.6vmin, 22px);
+        line-height: 1.7;
+        opacity: 0.8;
+      }
+      code {
+        font-family: Consolas, "IBM Plex Mono", monospace;
+        opacity: 1;
+      }
+      [hidden] {
+        display: none !important;
+      }
+    </style>
+  </head>
+  <body>
+    <main id="waiting" hidden>
+      <h1>Auralisy</h1>
+      <p id="status"></p>
+      <p id="help"></p>
+      <p><code id="where"></code></p>
+    </main>
+    <script>
+      // Wallpaper Engine runs this page from a local file. The wallpaper itself lives on
+      // the Auralisy service (same origin as its API, so the anonymous session cookie
+      // works): once the service answers, this page hands over to it. Settings reach
+      // only this page, so they travel in the address.
+      var settings = { url: "http://127.0.0.1:4180", lang: "zh-CN", fps: 30 };
+      var COPY = {
+        "zh-CN": {
+          status: "正在等待本机的 Auralisy 服务…",
+          help: "请在 Auralisy 仓库里运行 apps\\desktop\\desktop.cmd start。服务就绪后会自动打开壁纸。修改属性后，请重新加载壁纸。",
+          bad: "请填写本机服务地址，例如 http://127.0.0.1:4180。",
+        },
+        en: {
+          status: "Waiting for the Auralisy service on this computer…",
+          help: "Run apps\\desktop\\desktop.cmd start from the Auralisy repository. The wallpaper opens when the service is ready. Reload the wallpaper after changing its properties.",
+          bad: "Enter the local service address, for example http://127.0.0.1:4180.",
+        },
+      };
+      var RETRY_MS = 10000;
+      var timer = null;
+      var revision = 0;
+
+      window.wallpaperPropertyListener = {
+        applyUserProperties: function (properties) {
+          if (properties.serviceurl)
+            settings.url = String(properties.serviceurl.value || "")
+              .trim()
+              .replace(/\/+$/, "");
+          if (properties.language)
+            settings.lang = properties.language.value === "en" ? "en" : "zh-CN";
+          schedule(0);
+        },
+        applyGeneralProperties: function (properties) {
+          if (properties.fps) settings.fps = properties.fps;
+        },
+      };
+
+      function words() {
+        return COPY[settings.lang] || COPY["zh-CN"];
+      }
+
+      function show(message) {
+        document.documentElement.lang = settings.lang;
+        document.getElementById("status").textContent = message;
+        document.getElementById("help").textContent = words().help;
+        document.getElementById("where").textContent = settings.url;
+        document.getElementById("waiting").hidden = false;
+      }
+
+      function target() {
+        return (
+          settings.url +
+          "/wallpaper.html?lang=" +
+          encodeURIComponent(settings.lang) +
+          "&fps=" +
+          Math.round(Math.max(1, Math.min(60, Number(settings.fps) || 30)))
+        );
+      }
+
+      async function probe(attempt) {
+        var address = /^http:\/\/127\.0\.0\.1:(\d{1,5})$/.exec(settings.url);
+        if (!address || Number(address[1]) < 1 || Number(address[1]) > 65535) {
+          show(words().bad);
+          return;
+        }
+        show(words().status);
+        try {
+          var response = await fetch(settings.url + "/desktop/ready", {
+            cache: "no-store",
+            credentials: "omit",
+            redirect: "error",
+            signal: AbortSignal.timeout(5000),
+          });
+          if (
+            response.ok &&
+            (await response.json()).status === "UP" &&
+            revision === attempt
+          ) {
+            location.replace(target());
+            return;
+          }
+        } catch {
+          // Retry while the local service is starting or unreachable.
+        }
+        if (revision === attempt) schedule(RETRY_MS);
+      }
+
+      function schedule(delay) {
+        clearTimeout(timer);
+        var attempt = ++revision;
+        timer = setTimeout(function () {
+          probe(attempt);
+        }, delay);
+      }
+
+      // Properties arrive right after load; wait a moment for them before the first try.
+      schedule(400);
+    </script>
+  </body>
+</html>
