@@ -8,6 +8,10 @@ class ControlUnavailable(RuntimeError):
     """The control operation has no usable response; mutation may have happened."""
 
 
+class RetryableDeliveryUnavailable(ControlUnavailable):
+    """Java explicitly permits replay of this delivery after database contention."""
+
+
 class DeliveryPending(ControlUnavailable):
     def __init__(self, delivery_id: str) -> None:
         super().__init__("DELIVERY_PENDING")

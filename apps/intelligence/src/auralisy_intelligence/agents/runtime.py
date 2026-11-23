@@ -125,6 +125,9 @@ class Execution:
         if not allow_expired and datetime.now(timezone.utc) >= self._deadline:
             raise CallDenied("DEADLINE_EXCEEDED")
 
+    def remaining_seconds(self) -> float:
+        return max(0.0, (self._deadline - datetime.now(timezone.utc)).total_seconds())
+
     def event(self, kind: str, object_id: str | None = None) -> None:
         if kind not in {
             "ACCEPTED",
@@ -659,8 +662,7 @@ class RoundSupervisor:
         execution.event("RUNNING")
         try:
             execution.ensure_active()
-            remaining = max(0, (execution._deadline - datetime.now(timezone.utc)).total_seconds())
-            await asyncio.wait_for(stage(execution), timeout=remaining)
+            await asyncio.wait_for(stage(execution), timeout=execution.remaining_seconds())
             execution.status = "CLOSED" if not execution.cancelled.is_set() else "CANCELLED"
         except asyncio.CancelledError:
             execution.status = "CANCELLED"

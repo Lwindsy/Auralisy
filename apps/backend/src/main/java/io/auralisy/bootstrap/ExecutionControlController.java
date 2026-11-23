@@ -9,6 +9,7 @@ import io.auralisy.discovery.api.DispatchQueue;
 import io.auralisy.evidence.api.EvidenceAuthority;
 import io.auralisy.persistence.DbDiagnostics;
 import io.auralisy.persistence.PersistenceRejected;
+import io.auralisy.persistence.ShortTransactions;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.util.Set;
@@ -228,18 +229,28 @@ public class ExecutionControlController {
     public JsonNode delivery(
             @PathVariable String execution,
             @PathVariable String delivery,
-            HttpServletRequest request)
+            HttpServletRequest request,
+            HttpServletResponse response)
             throws java.io.IOException {
         var payload = read(request, "Delivery");
         if (!delivery.equals(payload.path("delivery_id").asText()))
             throw new PersistenceRejected("BINDING_MISMATCH");
-        return response(
-                request,
-                "DeliveryResult",
-                database(
-                        DELIVERY,
-                        execution,
-                        () -> recommendations.deliver(execution, payload.toString())));
+        String result;
+        try {
+            result =
+                    database(
+                            DELIVERY,
+                            execution,
+                            () -> recommendations.deliver(execution, payload.toString()));
+        } catch (RuntimeException failure) {
+            // A long review uses one write transaction. A timeout here permits replay of its
+            // original ID.
+            if (!payload.path("kind").asText().equals("LONG_REVIEW")
+                    || !ShortTransactions.isLockContention(failure)) throw failure;
+            errors.writeDeliveryContention(request, response);
+            return null;
+        }
+        return response(request, "DeliveryResult", result);
     }
 
     @PostMapping("/internal/v1/executions/{execution}/preference-resolution")

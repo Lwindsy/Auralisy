@@ -15,7 +15,7 @@ from aiohttp import web
 from auralisy_intelligence import telemetry
 from auralisy_intelligence.contracts import ContractError, envelope, validate_message
 
-from .ports import CallDenied, ControlPort, ControlUnavailable
+from .ports import CallDenied, ControlPort, ControlUnavailable, RetryableDeliveryUnavailable
 from .runtime import RoundSupervisor
 
 CONTROL_ROUTES = {
@@ -127,6 +127,15 @@ class ControlHTTPClient:
         except (ValueError, TypeError, KeyError) as error:
             raise ControlUnavailable("CONTROL_INVALID_RESPONSE") from error
         if response.status_code >= 500:
+            if (
+                operation == "delivery"
+                and response.status_code == 503
+                and decoded["request_id"] == request_id
+                and decoded["message_type"] == "Error"
+                and decoded["payload"]["code"] == "DEPENDENCY_UNAVAILABLE"
+                and decoded["payload"]["retry_disposition"] == "READ_STATUS_OR_SAFE_RETRY"
+            ):
+                raise RetryableDeliveryUnavailable("CONTROL_UNAVAILABLE")
             raise ControlUnavailable("CONTROL_UNAVAILABLE")
         if request_type and decoded["request_id"] != request_id:
             raise ControlUnavailable("CONTROL_RESPONSE_MISMATCH")

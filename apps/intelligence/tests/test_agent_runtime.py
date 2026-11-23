@@ -5,6 +5,7 @@ import json
 from copy import deepcopy
 from pathlib import Path
 
+import httpx
 import pytest
 from auralisy_intelligence.agents import (
     AgentClock,
@@ -15,12 +16,16 @@ from auralisy_intelligence.agents import (
     Usage,
 )
 from auralisy_intelligence.agents.control_double import JavaControlDouble
-from auralisy_intelligence.agents.ports import DeliveryPending
+from auralisy_intelligence.agents.http import ControlHTTPClient
+from auralisy_intelligence.agents.pipeline import FirstBatchPipeline
+from auralisy_intelligence.agents.ports import DeliveryPending, RetryableDeliveryUnavailable
 from auralisy_intelligence.agents.resources import ServiceResources
+from auralisy_intelligence.agents.runtime import Execution
 from auralisy_intelligence.contracts import (
     ContractError,
     content_digest,
     digest,
+    envelope,
     validate_definition,
 )
 
@@ -386,6 +391,96 @@ def test_delivery_response_loss_reuses_id_and_original_payload():
         await supervisor.wait(execution.id)
         assert execution.status == "CLOSED", execution.error_code
         assert execution.status == "CLOSED"
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    ("operation", "status", "disposition", "matching_id", "expected"),
+    [
+        ("delivery", 503, "READ_STATUS_OR_SAFE_RETRY", True, RetryableDeliveryUnavailable),
+        ("delivery", 503, "STOP", True, ControlUnavailable),
+        ("delivery", 500, "READ_STATUS_OR_SAFE_RETRY", True, ControlUnavailable),
+        ("delivery", 503, "READ_STATUS_OR_SAFE_RETRY", False, ControlUnavailable),
+        ("invocation-grants", 503, "READ_STATUS_OR_SAFE_RETRY", True, ControlUnavailable),
+        ("delivery", 410, "STOP", True, ContractError),
+    ],
+)
+def test_only_correlated_delivery_contention_enables_backoff(
+    operation, status, disposition, matching_id, expected
+):
+    async def run():
+        request = start()
+        _, control = setup(request)
+        execution = Execution(request, control)
+        await bind(execution, control)
+        if operation == "delivery":
+            await execution.deliver("SUPPLY_STATUS", supply())
+            payload = control.deliveries[execution.id + ":1"]
+        else:
+            payload = {"items": [execution.invocation_plan("SCREEN", "screen", {})]}
+        await execution.cleanup()
+        client = ControlHTTPClient("http://127.0.0.1:1", "synthetic")
+        await client.close()
+
+        def handler(request):
+            request_id = json.loads(request.content)["request_id"] if matching_id else "other"
+            code = "EXECUTION_GONE" if status == 410 else "DEPENDENCY_UNAVAILABLE"
+            return httpx.Response(
+                status,
+                json=envelope(
+                    "Error",
+                    {"code": code, "retry_disposition": disposition, "reason": code},
+                    request_id,
+                ),
+            )
+
+        async with httpx.AsyncClient(
+            base_url="http://127.0.0.1:1", transport=httpx.MockTransport(handler)
+        ) as transport:
+            client.client = transport
+            with pytest.raises(expected) as captured:
+                await client.request("execution-1", operation, payload)
+            assert type(captured.value) is expected
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("remaining", [0.05, 2.0])
+def test_delivery_backoff_replays_exact_delivery_within_deadline(monkeypatch, remaining):
+    async def run():
+        request = start()
+        supervisor, control = setup(request)
+        original = control.request
+        attempts = []
+        cases = []
+
+        async def busy(execution_id, operation, payload):
+            if operation == "delivery":
+                attempts.append(deepcopy(payload))
+                if len(attempts) < 4:
+                    raise RetryableDeliveryUnavailable("CONTROL_UNAVAILABLE")
+            return await original(execution_id, operation, payload)
+
+        monkeypatch.setattr(control, "request", busy)
+        pipeline = FirstBatchPipeline(None, None, None, None, None)
+
+        async def stage(execution):
+            await bind(execution, control)
+            monkeypatch.setattr(execution, "remaining_seconds", lambda: remaining)
+            if remaining < 0.1:
+                with pytest.raises(DeliveryPending):
+                    await pipeline.deliver(execution, "SUPPLY_STATUS", supply())
+                cases.append(3)
+            else:
+                await pipeline.deliver(execution, "SUPPLY_STATUS", supply())
+                cases.append(4)
+
+        _, execution = await supervisor.accept(request, stage, control)
+        await supervisor.wait(execution.id)
+        assert cases == [len(attempts)]
+        assert all(attempt == attempts[0] for attempt in attempts)
+        assert len(control.deliveries) == (remaining >= 0.1)
 
     asyncio.run(run())
 

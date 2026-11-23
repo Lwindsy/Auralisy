@@ -11,6 +11,7 @@ import os
 import re
 import time
 import traceback
+from contextvars import ContextVar
 from pathlib import Path
 
 from aiohttp import web
@@ -28,13 +29,25 @@ class Fixtures:
         self.repairs = set()
         self.dropped = set()
         self.tasks = set()
+        self.long_calls = 0
+        self.first_long_delivery = None
 
     def controls(self):
         return json.loads((self.root / "faults.json").read_text(encoding="utf-8"))
 
     def event(self, kind, **values):
         with (self.root / "provider-events.jsonl").open("a", encoding="utf-8") as output:
-            output.write(json.dumps({"kind": kind, "monotonic": time.monotonic(), **values}) + "\n")
+            output.write(
+                json.dumps(
+                    {
+                        "kind": kind,
+                        "monotonic": time.monotonic(),
+                        "unix_time": time.time(),
+                        **values,
+                    }
+                )
+                + "\n"
+            )
 
     def check_binding(self, binding, *, search=False):
         pass
@@ -43,6 +56,16 @@ class Fixtures:
         self.event("model", schema=request.schema_name)
         await asyncio.sleep(self.controls().get("model_delay_seconds", 0.01))
         faults = self.controls()
+        if faults.get("subject_lock_probe") and request.schema_name.startswith("long_review"):
+            self.long_calls += 1
+            if self.long_calls == 2:
+                self.event("long_call_inflight", album=request.input["album"]["title"])
+                try:
+                    while not (self.root / "finish-inflight-call").exists():
+                        await asyncio.sleep(0.02)
+                except asyncio.CancelledError:
+                    self.event("long_call_cancelled")
+                    raise
         while faults.get("hold_models") or (
             faults.get("hold_long") and request.schema_name.startswith("long_review")
         ):
@@ -271,11 +294,55 @@ def main():
     parser.add_argument("--port", type=int, required=True)
     args = parser.parse_args()
     fixture = Fixtures(Path(args.config).resolve().parent)
-    (fixture.root / "python-pid.json").write_text(json.dumps({"pid": os.getpid()}))
+    (fixture.root / "python-pid.json").write_text(
+        json.dumps({"pid": os.getpid(), "source": service.__file__}), encoding="utf-8"
+    )
     original_request = service.ControlHTTPClient.request
+    callback = ContextVar("callback", default=None)
+    lock_probe = fixture.controls().get("subject_lock_probe")
+
+    async def record_http(response):
+        await response.aread()
+        try:
+            error = response.json().get("payload", {})
+            error_code = error.get("code")
+            disposition = error.get("retry_disposition")
+        except (ValueError, AttributeError):
+            error_code = disposition = None
+        fixture.event(
+            "callback_http",
+            status=response.status_code,
+            error_code=error_code,
+            retry_disposition=disposition,
+            **(callback.get() or {}),
+        )
 
     async def observed_request(self, execution_id, operation, payload):
         fixture.event("control", operation=operation)
+        identifiers = {
+            key: payload[key]
+            for key in ("delivery_id", "invocation_id", "receipt_id")
+            if key in payload
+        }
+        diagnostic = {"operation": operation, "execution_id": execution_id, **identifiers}
+        if operation == "delivery":
+            diagnostic["delivery_kind"] = payload["kind"]
+            diagnostic["payload_digest"] = payload["payload_digest"]
+        if (
+            lock_probe
+            and operation == "delivery"
+            and payload["kind"] == "LONG_REVIEW"
+            and fixture.first_long_delivery is None
+        ):
+            fixture.first_long_delivery = payload["delivery_id"]
+            fixture.event(
+                "long_delivery_waiting",
+                **diagnostic,
+                invocation_ids=payload["payload"].get("invocation_ids", []),
+            )
+            while not (fixture.root / "send-long-delivery").exists():
+                await asyncio.sleep(0.02)
+        token = callback.set(diagnostic)
         if operation == "invocation-grants":
             (fixture.root / "last-grants-request.json").write_text(
                 json.dumps({"execution": execution_id, "payload": payload}), encoding="utf-8"
@@ -344,26 +411,44 @@ def main():
                 raise ControlUnavailable("CONTROL_UNAVAILABLE")
             return result
         except Exception as error:
-            fixture.event("control_error", operation=operation, error=str(error))
+            fixture.event(
+                "control_error",
+                error=str(error),
+                exception=type(error).__name__,
+                location=traceback.extract_tb(error.__traceback__)[-1].name,
+                **diagnostic,
+            )
             if operation == "delivery":
                 # This standalone test service has synthetic outputs only; never used in serve.
                 (fixture.root / "rejected-delivery.json").write_text(
                     json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
                 )
             raise
+        finally:
+            callback.reset(token)
 
     service.ControlHTTPClient.request = observed_request
     original_app = service.create_execution_app
 
     def observed_app(supervisor, control, factory, **kwargs):
+        if lock_probe:
+            control.client.event_hooks["response"].append(record_http)
+
         def observed_factory(start):
             pipeline = factory(start)
 
             async def run(execution):
+                if lock_probe:
+                    fixture.event("pipeline", name=type(pipeline.pipeline).__name__)
                 try:
                     await pipeline(execution)
-                except Exception:
-                    fixture.event("stage_error", traceback=traceback.format_exc())
+                except Exception as error:
+                    fixture.event(
+                        "stage_error",
+                        error=type(error).__name__,
+                        code=str(error),
+                        traceback=traceback.format_exc(),
+                    )
                     raise
 
             return run

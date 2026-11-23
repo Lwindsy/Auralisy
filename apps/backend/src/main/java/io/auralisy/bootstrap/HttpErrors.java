@@ -24,13 +24,18 @@ public final class HttpErrors implements ErrorController {
     public void write(
             HttpServletRequest request, HttpServletResponse response, int status, String code)
             throws IOException {
-        write(request, response, status, code, false);
+        write(request, response, status, code, false, "STOP");
     }
 
     public void writeCommitted(
             HttpServletRequest request, HttpServletResponse response, int status, String code)
             throws IOException {
-        write(request, response, status, code, true);
+        write(request, response, status, code, true, "STOP");
+    }
+
+    void writeDeliveryContention(HttpServletRequest request, HttpServletResponse response)
+            throws IOException {
+        write(request, response, 503, "DEPENDENCY_UNAVAILABLE", false, "READ_STATUS_OR_SAFE_RETRY");
     }
 
     private void write(
@@ -38,7 +43,8 @@ public final class HttpErrors implements ErrorController {
             HttpServletResponse response,
             int status,
             String code,
-            boolean committed)
+            boolean committed,
+            String internalRetry)
             throws IOException {
         response.setStatus(status);
         response.setContentType("application/json");
@@ -57,7 +63,9 @@ public final class HttpErrors implements ErrorController {
                     "trace_context",
                     Map.of("trace_id", id, "span_id", id.substring(0, Math.min(16, id.length()))));
             body.put("message_type", "Error");
-            body.put("payload", Map.of("code", code, "retry_disposition", "STOP", "reason", code));
+            body.put(
+                    "payload",
+                    Map.of("code", code, "retry_disposition", internalRetry, "reason", code));
         } else {
             body.put("code", code);
             body.put("request_id", id);
