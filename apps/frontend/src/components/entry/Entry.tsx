@@ -49,6 +49,10 @@ export interface EntryProps {
   notice: ReactNode;
   onResume: (() => void) | null;
   onSubmit: (input: DiscoveryInput) => void;
+  /** Doors shown, in order. A single door opens at once and stays open. */
+  doors?: readonly Door[];
+  /** False where there is no keyboard: genres are browsed, not searched. */
+  genreSearch?: boolean;
 }
 
 /**
@@ -67,11 +71,14 @@ export function Entry({
   notice,
   onResume,
   onSubmit,
+  doors = DOORS,
+  genreSearch = true,
 }: EntryProps) {
   const [form, setForm] = useState<EntryDraft>(() =>
     structuredClone(saved ?? draftFrom(initial ?? emptyInput())),
   );
-  const [active, setActive] = useState<Door | null>(null);
+  const single = doors.length === 1 ? (doors[0] ?? null) : null;
+  const [active, setActive] = useState<Door | null>(single);
   const words = useCopy();
   const FACE = words.entry.doors;
   const draft = form.input;
@@ -247,7 +254,7 @@ export function Entry({
   // 传播度 and the go button) is exempt: folding moves the go button out from under the
   // pointer before the click lands, so a press there must not fold the door.
   useEffect(() => {
-    if (!active) return;
+    if (!active || single) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape" && !event.defaultPrevented) setActive(null);
     };
@@ -266,7 +273,7 @@ export function Entry({
       window.removeEventListener("keydown", onKey);
       document.removeEventListener("pointerdown", onPress);
     };
-  }, [active]);
+  }, [active, single]);
 
   const counts: Record<Door, number> = {
     text: draft.request_text.trim() ? 1 : 0,
@@ -346,7 +353,11 @@ export function Entry({
               })
             }
           />
-          <GenrePanel api={api} handlers={genreHandlers} />
+          <GenrePanel
+            api={api}
+            handlers={genreHandlers}
+            searchable={genreSearch}
+          />
         </>
       );
     return (
@@ -375,6 +386,7 @@ export function Entry({
     <section
       className="entry"
       data-active={active ?? undefined}
+      data-single={single ?? undefined}
       data-leaving={leaving || undefined}
       aria-labelledby="entry-title"
     >
@@ -412,7 +424,7 @@ export function Entry({
       </header>
 
       <div className="doors">
-        {DOORS.map((door, index) => {
+        {doors.map((door, index) => {
           const state = active === door ? "open" : active ? "folded" : "idle";
           const id = `door-${door}`;
           return (
@@ -434,7 +446,9 @@ export function Entry({
                 }
                 aria-expanded={state === "open"}
                 aria-controls={id}
-                onClick={() => setActive(state === "open" ? null : door)}
+                onClick={() => {
+                  if (!single) setActive(state === "open" ? null : door);
+                }}
               >
                 {/* Three faces share the door and cross-fade while it resizes. */}
                 <span className="face face--idle" aria-hidden="true">

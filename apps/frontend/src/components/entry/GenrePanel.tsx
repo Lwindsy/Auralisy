@@ -115,9 +115,12 @@ function relation(node: GenreNode, parent: GenreNode | null) {
 export function GenrePanel({
   api,
   handlers,
+  searchable = true,
 }: {
   api: Api;
   handlers: GenreHandlers;
+  /** False where there is no keyboard (a desktop wallpaper): browse the tree only. */
+  searchable?: boolean;
 }) {
   const [query, setQuery] = useState("");
   const [immediate, setImmediate] = useState<string | null>(null);
@@ -168,18 +171,20 @@ export function GenrePanel({
   }, [touchCard]);
 
   return (
-    <div className="genres">
-      <SearchField
-        id="genres-query"
-        label={words.search}
-        placeholder={words.placeholder}
-        value={query}
-        onChange={(value) => {
-          setQuery(value);
-          setImmediate(null);
-        }}
-        onSubmit={() => setImmediate(query.trim())}
-      />
+    <div className="genres" data-searchable={searchable || undefined}>
+      {searchable ? (
+        <SearchField
+          id="genres-query"
+          label={words.search}
+          placeholder={words.placeholder}
+          value={query}
+          onChange={(value) => {
+            setQuery(value);
+            setImmediate(null);
+          }}
+          onSubmit={() => setImmediate(query.trim())}
+        />
+      ) : null}
       <QuietScroll className="genres__frame">
         <div
           className="genres__list quiet-scroll"
