@@ -1,0 +1,114 @@
+services:
+  database:
+    image: postgres:18.6-bookworm
+    environment:
+      POSTGRES_PASSWORD: ${DESKTOP_POSTGRES_PASSWORD:?use desktop launcher}
+    command: ["postgres", "-c", "listen_addresses=127.0.0.1"]
+    ports:
+      - "127.0.0.1:${DESKTOP_PORT:-4180}:4180"
+    volumes:
+      - database:/var/lib/postgresql
+      - type: bind
+        source: ${DESKTOP_BUNDLE}
+        target: /bundle
+        read_only: true
+    mem_limit: 1g
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "postgres"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  migrate:
+    profiles: [prepare]
+    image: ${COMPOSE_PROJECT_NAME}-java
+    network_mode: service:database
+    environment:
+      AURALIS_JDBC_URL: jdbc:postgresql://127.0.0.1:5432/auralis_core
+      AURALIS_MIGRATOR_USER: auralis_migrator
+      AURALIS_MIGRATOR_PASSWORD: ${DESKTOP_MIGRATOR_PASSWORD}
+    command: ["--offline-migrate"]
+    mem_limit: 1g
+
+  prepare:
+    profiles: [prepare]
+    image: ${COMPOSE_PROJECT_NAME}-python
+    network_mode: none
+    entrypoint: ["python", "/desktop/configure.py"]
+    environment:
+      DESKTOP_SESSION_MICROUSD: ${DESKTOP_SESSION_MICROUSD:-500000}
+      DESKTOP_ROUND_MICROUSD: ${DESKTOP_ROUND_MICROUSD:-300000}
+      DESKTOP_SYNTHETIC: ${DESKTOP_SYNTHETIC:-0}
+    volumes:
+      - "${DESKTOP_BUNDLE}:/bundle:ro"
+      - "${DESKTOP_CONFIG}:/config"
+      - "${DESKTOP_RECALL:-${DESKTOP_BUNDLE}}:/recall:ro"
+    mem_limit: 3g
+
+  python:
+    image: ${COMPOSE_PROJECT_NAME}-python
+    build:
+      context: ../..
+      dockerfile: apps/desktop/python.Dockerfile
+    network_mode: service:database
+    environment:
+      AURALIS_PRODUCT_TEST_API_KEY: ${DESKTOP_PROVIDER_KEY:-}
+      AURALIS_SERVICE_TOKEN: ${DESKTOP_SERVICE_TOKEN}
+      AURALIS_GENRE_REACH_INDEX: /config/genre-reach.json
+      DESKTOP_SYNTHETIC: ${DESKTOP_SYNTHETIC:-0}
+    volumes:
+      - "${DESKTOP_BUNDLE}:/bundle:ro"
+      - "${DESKTOP_CONFIG}:/config:ro"
+      - "${DESKTOP_RECALL:-${DESKTOP_BUNDLE}}:/recall:ro"
+    mem_limit: 3g
+    stop_grace_period: 30s
+
+  java:
+    image: ${COMPOSE_PROJECT_NAME}-java
+    build:
+      context: ../..
+      dockerfile: apps/runtime/java.Dockerfile
+    network_mode: service:database
+    depends_on: [python]
+    environment:
+      AURALIS_JDBC_URL: jdbc:postgresql://127.0.0.1:5432/auralis_core
+      AURALIS_DATABASE_USER: auralis_online
+      AURALIS_DATABASE_PASSWORD: ${DESKTOP_ONLINE_PASSWORD}
+      AURALIS_PYTHON_URL: http://127.0.0.1:8765
+      AURALIS_PRODUCT_ORIGIN: ${DESKTOP_ORIGIN:-http://127.0.0.1:4180}
+      AURALIS_ALLOW_INSECURE_COOKIE: "true"
+      AURALIS_SERVICE_TOKEN: ${DESKTOP_SERVICE_TOKEN}
+      AURALIS_SUBJECT_SECRET: ${DESKTOP_SUBJECT_SECRET}
+      AURALIS_CONTRACT_REVISION: "0.32"
+      AURALIS_DISPATCH_ENABLED: "true"
+      AURALIS_DISPATCH_EXECUTIONS: "1"
+      AURALIS_DISPATCH_WAITING: "2"
+      AURALIS_DISPATCH_EXECUTION_SECONDS: "180"
+      AURALIS_RECOMMENDATION_CONFIG: /config/recommendation.json
+      AURALIS_GENRE_TAXONOMY: /bundle/taxonomy/taxonomy.json
+      AURALIS_GENRE_REACH_INDEX: /config/genre-reach.json
+      AURALIS_CATALOG_SEARCH_INDEX: ${DESKTOP_SEARCH_INDEX:-}
+      AURALIS_CATALOG_SEARCH_MANIFEST_SHA256: ${DESKTOP_SEARCH_MANIFEST:-}
+      AURALIS_CURATED_CONTENT_DIRECTORY: ${DESKTOP_CURATED:-}
+    volumes:
+      - "${DESKTOP_BUNDLE}:/bundle:ro"
+      - "${DESKTOP_CONFIG}:/config:ro"
+    mem_limit: 2g
+    stop_grace_period: 30s
+
+  web:
+    image: ${COMPOSE_PROJECT_NAME}-web
+    build:
+      context: ../..
+      dockerfile: apps/desktop/web.Dockerfile
+    network_mode: service:database
+    depends_on: [java]
+    volumes:
+      - web-data:/data
+      - web-config:/config
+    mem_limit: 128m
+
+volumes:
+  database:
+  web-data:
+  web-config:

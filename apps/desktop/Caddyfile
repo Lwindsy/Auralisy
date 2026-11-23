@@ -1,0 +1,35 @@
+{
+	admin off
+}
+
+http://:4180 {
+	@wallpaperReady {
+		method GET
+		path /desktop/ready
+		header Origin null
+	}
+	handle @wallpaperReady {
+		header Access-Control-Allow-Origin "null"
+		rewrite * /actuator/health/readiness
+		reverse_proxy 127.0.0.1:8080
+	}
+	@ready {
+		method GET
+		path /desktop/ready
+	}
+	handle @ready {
+		rewrite * /actuator/health/readiness
+		reverse_proxy 127.0.0.1:8080
+	}
+	handle /v1/* {
+		reverse_proxy 127.0.0.1:8080
+	}
+	@private path /internal /internal/* /actuator /actuator/* /desktop/*
+	handle @private {
+		respond 404
+	}
+	handle {
+		root * /srv
+		file_server
+	}
+}

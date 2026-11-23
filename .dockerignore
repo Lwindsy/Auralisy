@@ -16,3 +16,7 @@
 !apps/frontend/dist/**
 **/__pycache__/
 **/*.pyc
+**/settings.json
+**/settings.pending
+**/.settings-*.pending
+**/launcher.lock
