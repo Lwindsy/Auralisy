@@ -289,5 +289,62 @@ class HostTests(unittest.TestCase):
             self.assertTrue(statement.startswith("BEGIN;"))
 
 
+class DiagnosticWindowTests(unittest.TestCase):
+    def test_restores_other_settings_after_one_restore_fails(self):
+        from contextlib import contextmanager
+        from types import SimpleNamespace
+
+        from pg_lock_window import SETTINGS, lock_diagnostic_window
+
+        before = {
+            "log_lock_waits": "off",
+            "deadlock_timeout": "750ms",
+            "log_min_error_statement": "panic",
+            "log_parameter_max_length_on_error": "0",
+        }
+        settings = dict(before)
+        restores = []
+
+        class Admin:
+            autocommit = True
+            info = SimpleNamespace(dbname="auralis_core_verify")
+            restoring = False
+
+            def execute(self, statement, *params):
+                if isinstance(statement, str):
+                    if "split_part" in statement:
+                        return [("deadlock_timeout", settings["deadlock_timeout"])]
+                    if "pg_terminate_backend" in statement:
+                        return Mock(fetchall=Mock(return_value=[]))
+                    return []
+                command = statement.as_string()
+                name = next(key for key in SETTINGS if f'"{key}"' in command)
+                if self.restoring:
+                    restores.append(name)
+                    if name == "log_lock_waits":
+                        raise RuntimeError("fixture restore failure")
+                    settings[name] = before[name]
+                else:
+                    settings[name] = SETTINGS[name]
+
+        @contextmanager
+        def online():
+            def execute(query):
+                name = query.as_string().split('"')[1]
+                return Mock(fetchone=Mock(return_value=(settings[name],)))
+
+            yield SimpleNamespace(execute=execute)
+
+        admin = Admin()
+        with self.assertRaisesRegex(
+            RuntimeError, "DIAGNOSTICS_SETTINGS_NOT_RESTORED:log_lock_waits"
+        ):
+            with lock_diagnostic_window(admin, online, "auralis_online"):
+                admin.restoring = True
+        self.assertEqual(restores, list(SETTINGS))
+        self.assertEqual(settings["deadlock_timeout"], "750ms")
+        self.assertEqual(settings["log_min_error_statement"], "panic")
+
+
 if __name__ == "__main__":
     unittest.main()

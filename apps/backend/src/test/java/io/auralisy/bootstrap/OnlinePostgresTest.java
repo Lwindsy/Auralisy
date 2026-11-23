@@ -35,25 +35,22 @@ class OnlinePostgresTest {
     static void database() throws Exception {
         url = System.getenv("AURALIS_TEST_POSTGRES_URL");
         assertTrue(url.matches("jdbc:postgresql://127\\.0\\.0\\.1:[0-9]+/auralis_core_verify"));
+        String admin = System.getenv("AURALIS_TEST_POSTGRES_ADMIN_PASSWORD");
+        try (var c = DriverManager.getConnection(url, "postgres", admin);
+                var s = c.createStatement()) {
+            s.execute(
+                    "DO $$ BEGIN CREATE ROLE auralis_online LOGIN PASSWORD 'be004-synthetic-runtime'; EXCEPTION WHEN duplicate_object THEN NULL; END $$");
+        }
+        Flyway.configure()
+                .dataSource(url, "postgres", admin)
+                .locations("classpath:db/migration")
+                .load()
+                .migrate();
         try (var c =
                         DriverManager.getConnection(
                                 url,
                                 "postgres",
                                 System.getenv("AURALIS_TEST_POSTGRES_ADMIN_PASSWORD"));
-                var s = c.createStatement()) {
-            s.execute(
-                    "DO $$ BEGIN CREATE ROLE be004_migrator LOGIN PASSWORD 'be004-synthetic-runtime'; EXCEPTION WHEN duplicate_object THEN NULL; END $$");
-            s.execute(
-                    "DO $$ BEGIN CREATE ROLE auralis_online LOGIN PASSWORD 'be004-synthetic-runtime'; EXCEPTION WHEN duplicate_object THEN NULL; END $$");
-            s.execute("GRANT CREATE ON DATABASE auralis_core_verify TO be004_migrator");
-            s.execute("GRANT USAGE, CREATE ON SCHEMA public TO be004_migrator");
-        }
-        Flyway.configure()
-                .dataSource(url, "be004_migrator", PASSWORD)
-                .locations("classpath:db/migration")
-                .load()
-                .migrate();
-        try (var c = DriverManager.getConnection(url, "be004_migrator", PASSWORD);
                 var s = c.createStatement()) {
             s.execute(
                     "CREATE TABLE IF NOT EXISTS public.bootstrap_probe (id bigint primary key, value varchar(255))");
@@ -211,7 +208,11 @@ class OnlinePostgresTest {
                         fail();
                     }
                 });
-        try (var c = DriverManager.getConnection(url, "be004_migrator", PASSWORD);
+        try (var c =
+                        DriverManager.getConnection(
+                                url,
+                                "postgres",
+                                System.getenv("AURALIS_TEST_POSTGRES_ADMIN_PASSWORD"));
                 var s = c.createStatement()) {
             var result =
                     s.executeQuery("SELECT checksum FROM flyway_schema_history WHERE version='6'");

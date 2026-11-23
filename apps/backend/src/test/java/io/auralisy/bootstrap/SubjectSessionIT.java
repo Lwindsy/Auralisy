@@ -11,6 +11,7 @@ import io.auralisy.persistence.ShortTransactions;
 import io.auralisy.session.api.SessionStore;
 import io.auralisy.session.api.SubjectSession;
 import io.auralisy.session.domain.SubjectCredentials;
+import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.servlet.http.HttpServletRequest;
 import java.net.*;
 import java.net.http.*;
@@ -60,7 +61,12 @@ class SubjectSessionIT {
                 }
             }
             try {
+                var contention =
+                        context.getBean(MeterRegistry.class)
+                                .counter("auralisy.db.lock_contention", "phase", "cleanup");
+                double before = contention.count();
                 service.cleanup(4);
+                assertEquals(before + 1, contention.count());
                 assertEquals(
                         0,
                         jdbc.queryForObject(

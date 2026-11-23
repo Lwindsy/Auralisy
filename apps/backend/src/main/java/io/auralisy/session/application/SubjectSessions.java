@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.auralisy.contracts.MessageDefinitions;
 import io.auralisy.discovery.api.SessionExecutions;
+import io.auralisy.persistence.DbDiagnostics;
 import io.auralisy.persistence.PersistenceRejected;
 import io.auralisy.persistence.ShortTransactions;
 import io.auralisy.publication.api.RecoveryProjection;
@@ -29,6 +30,7 @@ public class SubjectSessions implements SubjectSession {
     private final SessionExecutions executions;
     private final RecoveryProjection projection;
     private final ShortTransactions tx;
+    private final DbDiagnostics diagnostics;
     private final SubjectCredentials credentials;
     private final Clock clock;
     private final ObjectMapper json;
@@ -42,6 +44,7 @@ public class SubjectSessions implements SubjectSession {
             SessionExecutions executions,
             RecoveryProjection projection,
             ShortTransactions tx,
+            DbDiagnostics diagnostics,
             SubjectCredentials credentials,
             Clock clock,
             ObjectMapper json,
@@ -53,6 +56,7 @@ public class SubjectSessions implements SubjectSession {
         this.executions = executions;
         this.projection = projection;
         this.tx = tx;
+        this.diagnostics = diagnostics;
         this.credentials = credentials;
         this.clock = clock;
         this.json = json;
@@ -432,6 +436,7 @@ public class SubjectSessions implements SubjectSession {
                         });
             } catch (RuntimeException failure) {
                 if (!ShortTransactions.isLockContention(failure)) throw failure;
+                diagnostics.skipped(DbDiagnostics.Phase.CLEANUP, failure, null);
                 deferredOwners.add(id);
             }
         }
@@ -458,6 +463,7 @@ public class SubjectSessions implements SubjectSession {
                         });
             } catch (RuntimeException failure) {
                 if (!ShortTransactions.isLockContention(failure)) throw failure;
+                diagnostics.skipped(DbDiagnostics.Phase.CLEANUP, failure, null);
                 deferredOwners.add(candidate.subject());
             }
         }
@@ -540,6 +546,7 @@ public class SubjectSessions implements SubjectSession {
                 completed += result;
             } catch (RuntimeException failure) {
                 if (!ShortTransactions.isLockContention(failure)) throw failure;
+                diagnostics.skipped(DbDiagnostics.Phase.CLEANUP, failure, null);
                 // Only skip this owner for this bounded pass. Preserve its original due time.
                 deferredOwners.add(candidate.get().subjectId());
             }

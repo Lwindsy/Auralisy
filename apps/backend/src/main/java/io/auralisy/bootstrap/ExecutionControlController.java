@@ -19,6 +19,9 @@ import org.springframework.web.bind.annotation.*;
 /** Authenticated internal control only; browser recommendation commands belong to BE-003. */
 @RestController
 public class ExecutionControlController {
+    // Each allowed delivery has one write transaction and an idempotent receipt.
+    private static final Set<String> REPLAYABLE_DELIVERIES =
+            Set.of("CARD_BATCH", "SCREENINGS", "ORDER_UPDATE", "SUPPLY_STATUS", "LONG_REVIEW");
     private final io.auralisy.persistence.ShortTransactions tx;
     private final DispatchQueue queue;
     private final BudgetAuthority budget;
@@ -119,7 +122,8 @@ public class ExecutionControlController {
     public JsonNode usage(
             @PathVariable String invocation,
             @PathVariable String receipt,
-            HttpServletRequest request)
+            HttpServletRequest request,
+            HttpServletResponse response)
             throws java.io.IOException {
         var p = read(request, "UsageReceipt");
         if (!p.path("invocation_id").asText().equals(invocation)
@@ -128,10 +132,14 @@ public class ExecutionControlController {
         // Dispatcher generates UUID execution IDs. Budget independently verifies the retained
         // digest.
         String execution = invocation.substring(0, invocation.indexOf(':'));
-        return response(
+        return publicationResponse(
                 request,
+                response,
                 "UsageSettlement",
-                database(USAGE, execution, () -> budget.settle(execution, p.toString())));
+                USAGE,
+                execution,
+                true,
+                () -> budget.settle(execution, p.toString()));
     }
 
     @PostMapping("/internal/v1/executions/{execution}/read-authorization")
@@ -235,22 +243,34 @@ public class ExecutionControlController {
         var payload = read(request, "Delivery");
         if (!delivery.equals(payload.path("delivery_id").asText()))
             throw new PersistenceRejected("BINDING_MISMATCH");
+        return publicationResponse(
+                request,
+                response,
+                "DeliveryResult",
+                DELIVERY,
+                execution,
+                REPLAYABLE_DELIVERIES.contains(payload.path("kind").asText()),
+                () -> recommendations.deliver(execution, payload.toString()));
+    }
+
+    private JsonNode publicationResponse(
+            HttpServletRequest request,
+            HttpServletResponse response,
+            String resultType,
+            DbDiagnostics.Phase phase,
+            String execution,
+            boolean replayable,
+            java.util.function.Supplier<String> write)
+            throws java.io.IOException {
         String result;
         try {
-            result =
-                    database(
-                            DELIVERY,
-                            execution,
-                            () -> recommendations.deliver(execution, payload.toString()));
+            result = database(phase, execution, write);
         } catch (RuntimeException failure) {
-            // A long review uses one write transaction. A timeout here permits replay of its
-            // original ID.
-            if (!payload.path("kind").asText().equals("LONG_REVIEW")
-                    || !ShortTransactions.isLockContention(failure)) throw failure;
-            errors.writeDeliveryContention(request, response);
+            if (!replayable || !ShortTransactions.isLockContention(failure)) throw failure;
+            errors.writePublicationContention(request, response);
             return null;
         }
-        return response(request, "DeliveryResult", result);
+        return response(request, resultType, result);
     }
 
     @PostMapping("/internal/v1/executions/{execution}/preference-resolution")

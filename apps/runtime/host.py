@@ -523,7 +523,7 @@ _EXCEPTION = r"[A-Za-z][A-Za-z0-9_]{0,79}"
 _SQLSTATES = r"(?:-|[0-9A-Z]{5}(?:,[0-9A-Z]{5}){0,4})"
 _EXECUTION = r"(?:-|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})"
 _PHASES = (
-    "runtime|reconcile|observe|admission|command|claim|send|unavailable|lifecycle|delivery|"
+    "runtime|reconcile|observe|admission|command|claim|send|unavailable|lifecycle|cleanup|delivery|"
     "invocation-grants|usage-receipt|budget-state|read-authorization|read-receipts|seed-evidence|"
     "preference-resolution|candidate-validation"
 )

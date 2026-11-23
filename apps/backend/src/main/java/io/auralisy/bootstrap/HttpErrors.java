@@ -33,7 +33,7 @@ public final class HttpErrors implements ErrorController {
         write(request, response, status, code, true, "STOP");
     }
 
-    void writeDeliveryContention(HttpServletRequest request, HttpServletResponse response)
+    void writePublicationContention(HttpServletRequest request, HttpServletResponse response)
             throws IOException {
         write(request, response, 503, "DEPENDENCY_UNAVAILABLE", false, "READ_STATUS_OR_SAFE_RETRY");
     }

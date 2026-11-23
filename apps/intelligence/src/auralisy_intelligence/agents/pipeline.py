@@ -11,7 +11,7 @@ from auralisy_intelligence.contracts import ContractError
 from auralisy_intelligence.preferences import PreferenceError, PreferencesStage
 from auralisy_intelligence.ranking import SelectStage
 
-from .ports import CallDenied, ControlUnavailable, DeliveryPending, RetryableDeliveryUnavailable
+from .ports import CallDenied, ControlUnavailable, DeliveryPending, RetryablePublicationUnavailable
 from .recall_stage import RecallStage
 from .runtime import Execution
 
@@ -100,11 +100,15 @@ class FirstBatchPipeline:
                 except ControlUnavailable as recovery_failure:
                     failure = recovery_failure
             delay = 0.1
-            while isinstance(failure, RetryableDeliveryUnavailable):
+            while isinstance(
+                failure, RetryablePublicationUnavailable
+            ) and execution.can_retry_publication(error.delivery_id):
                 remaining = execution.remaining_seconds()
                 if remaining <= delay:
                     break
                 await asyncio.sleep(delay)
+                if not execution.can_retry_publication(error.delivery_id):
+                    break
                 try:
                     return await asyncio.wait_for(
                         execution._send_delivery(error.delivery_id),

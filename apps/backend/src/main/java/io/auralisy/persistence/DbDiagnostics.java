@@ -44,6 +44,7 @@ public final class DbDiagnostics {
         SEND("send"),
         UNAVAILABLE("unavailable"),
         LIFECYCLE("lifecycle"),
+        CLEANUP("cleanup"),
         DELIVERY("delivery"),
         GRANTS("invocation-grants"),
         USAGE("usage-receipt"),

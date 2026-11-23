@@ -3,6 +3,7 @@
 import asyncio
 import json
 import time
+from contextlib import suppress
 from copy import deepcopy
 from dataclasses import replace
 from datetime import datetime, timezone
@@ -18,7 +19,15 @@ from auralisy_intelligence.contracts import (
 )
 
 from .clock import AgentClock
-from .ports import CallDenied, CallResult, ControlPort, ControlUnavailable, DeliveryPending, Stage
+from .ports import (
+    CallDenied,
+    CallResult,
+    ControlPort,
+    ControlUnavailable,
+    DeliveryPending,
+    RetryableUsageUnavailable,
+    Stage,
+)
 from .resources import ServiceResources
 
 
@@ -88,7 +97,8 @@ class Execution:
         self.uncertain: set[str] = set()
         self.pending_usage: dict[str, dict[str, Any]] = {}
         self._settlement_seq = -1
-        self._usage_lock = asyncio.Lock()
+        self._publication_lock = asyncio.Lock()
+        self._usage_failures: dict[str, str] = {}
         self.commands = IdempotencyLedger()
         self.events: list[dict[str, Any]] = []
         self.command_queue: asyncio.Queue = asyncio.Queue(maxsize=128)
@@ -330,7 +340,6 @@ class Execution:
                 reply = CallResult(outcome="UNCERTAIN", finish="ERROR")
             finally:
                 call["finished_at"] = self.clock.now()
-                telemetry.record_usage(self, span, reply)
                 receipt = {
                     "invocation_id": plan["invocation_id"],
                     "receipt_id": plan["invocation_id"] + ":usage",
@@ -347,6 +356,9 @@ class Execution:
                 ):
                     self.uncertain.add(plan["invocation_id"])
                 self.pending_usage[plan["invocation_id"]] = receipt
+                # Instrumentation failures cannot affect a provider result or its receipt.
+                with suppress(Exception):
+                    telemetry.record_usage(self, span, reply)
                 settlement = asyncio.create_task(self.flush_usage())
                 try:
                     await asyncio.shield(settlement)
@@ -370,13 +382,23 @@ class Execution:
         )
 
     async def flush_usage(self, *, force: bool = False) -> None:
-        async with self._usage_lock:
+        deadline = self.clock.now() + self.receipt_timeout_seconds
+        try:
+            await asyncio.wait_for(self._publication_lock.acquire(), self.receipt_timeout_seconds)
+        except asyncio.TimeoutError:
+            return
+        try:
             if not force and self.clock.now() < self._receipt_backoff_until:
                 return
-            await self._flush_usage_locked()
+            await self._flush_usage_locked(deadline=deadline)
+        finally:
+            self._publication_lock.release()
 
-    async def _flush_usage_locked(self, only: set[str] | None = None) -> None:
-        deadline = self.clock.now() + self.receipt_timeout_seconds
+    async def _flush_usage_locked(
+        self, only: set[str] | None = None, *, deadline: float | None = None
+    ) -> None:
+        if deadline is None:
+            deadline = self.clock.now() + self.receipt_timeout_seconds
         for identifier, receipt in list(self.pending_usage.items()):
             if only is not None and identifier not in only:
                 continue
@@ -389,10 +411,18 @@ class Execution:
                     self.control_request("usage-receipt", receipt), remaining
                 )
                 validate_definition("UsageSettlement", settlement)
-            except (ControlUnavailable, ContractError, asyncio.TimeoutError):
+            except (ControlUnavailable, ContractError, asyncio.TimeoutError) as error:
+                if isinstance(error, RetryableUsageUnavailable):
+                    reason = "LOCK_CONTENTION"
+                elif isinstance(error, asyncio.TimeoutError):
+                    reason = "RECEIPT_TIMEOUT"
+                else:
+                    reason = "OTHER"
+                self._usage_failures[identifier] = reason
                 self._receipt_backoff_until = self.clock.now() + self.receipt_timeout_seconds
                 break
             self.pending_usage.pop(identifier, None)
+            self._usage_failures.pop(identifier, None)
             if settlement["status"] == "SETTLED":
                 self.uncertain.discard(identifier)
             if settlement["settlement_seq"] > self._settlement_seq:
@@ -439,11 +469,19 @@ class Execution:
                 raise CallDenied("DELIVERY_BUFFER_FULL")
             self.buffer[identifier] = delivery
         try:
-            return await self._send_delivery(identifier)
+            return await self._send_delivery(identifier, initial=True)
         except ControlUnavailable as error:
             raise DeliveryPending(identifier) from error
 
-    async def _send_delivery(self, identifier: str) -> dict[str, Any]:
+    def can_retry_publication(self, identifier: str) -> bool:
+        return (
+            not self.cleaning
+            and not self.close_requested
+            and not self.cancelled.is_set()
+            and self.buffer.get(identifier, {}).get("kind") != "ROUND_REPORT"
+        )
+
+    async def _send_delivery(self, identifier: str, *, initial: bool = False) -> dict[str, Any]:
         self.ensure_active(
             start_work=False,
             allow_expired=self.buffer.get(identifier, {}).get("kind") == "ROUND_REPORT",
@@ -463,11 +501,27 @@ class Execution:
                 pending.extend(value.values())
             elif isinstance(value, list):
                 pending.extend(value)
-        if required.intersection(self.pending_usage):
-            async with self._usage_lock:
+        if not initial or required.intersection(self.pending_usage):
+            async with self._publication_lock:
+                self.ensure_active(
+                    start_work=False,
+                    allow_expired=self.buffer.get(identifier, {}).get("kind") == "ROUND_REPORT",
+                )
+                if identifier in self.delivery_results:
+                    return deepcopy(self.delivery_results[identifier])
                 await self._flush_usage_locked(required)
-            if required.intersection(self.pending_usage):
-                raise ControlUnavailable("USAGE_SETTLEMENT_PENDING")
+                blocked = required.intersection(self.pending_usage)
+                if blocked:
+                    if all(
+                        self._usage_failures.get(item) in {"LOCK_CONTENTION", "RECEIPT_TIMEOUT"}
+                        for item in blocked
+                    ):
+                        raise RetryableUsageUnavailable("USAGE_SETTLEMENT_PENDING")
+                    raise ControlUnavailable("USAGE_SETTLEMENT_PENDING")
+                return await self._publish(identifier)
+        return await self._publish(identifier)
+
+    async def _publish(self, identifier: str) -> dict[str, Any]:
         try:
             result = await self.control_request("delivery", self.buffer[identifier])
         except ContractError:

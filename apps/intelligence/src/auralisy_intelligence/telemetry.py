@@ -5,8 +5,6 @@ from contextlib import contextmanager
 from time import perf_counter
 
 from opentelemetry import metrics, trace
-from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
-from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 from opentelemetry.sdk.resources import Resource
@@ -28,6 +26,9 @@ round_cost = meter.create_histogram("auralisy.round.settled.snapshot", unit="USD
 def configure():
     if os.environ.get("AURALIS_TELEMETRY_ENABLED", "false").lower() != "true":
         return lambda: None
+    from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+
     resource = Resource.create({"service.name": "auralisy-python"})
     sample_rate = float(os.environ.get("AURALIS_TRACE_SAMPLE_RATE", "0.0"))
     traces = TracerProvider(resource=resource, sampler=ParentBased(TraceIdRatioBased(sample_rate)))

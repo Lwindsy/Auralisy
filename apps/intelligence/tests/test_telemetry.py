@@ -1,6 +1,9 @@
 """Regression for queued requests retaining their own trace under contention."""
 
 import asyncio
+import os
+import subprocess
+import sys
 
 import httpx
 import pytest
@@ -17,21 +20,30 @@ from test_providers import BINDING, REQUEST, response, web_execution
 
 
 @pytest.mark.parametrize("value", [None, "false"])
-def test_disabled_never_constructs_exporters(monkeypatch, value):
+def test_disabled_never_imports_exporters(value):
+    env = dict(os.environ)
     if value is None:
-        monkeypatch.delenv("AURALIS_TELEMETRY_ENABLED", raising=False)
+        env.pop("AURALIS_TELEMETRY_ENABLED", None)
     else:
-        monkeypatch.setenv("AURALIS_TELEMETRY_ENABLED", value)
-
-    def unexpected_exporter():
-        pytest.fail("telemetry exporter constructed while disabled")
-
-    monkeypatch.setattr(telemetry, "OTLPSpanExporter", unexpected_exporter)
-    monkeypatch.setattr(telemetry, "OTLPMetricExporter", unexpected_exporter)
-    shutdown = telemetry.configure()
-    with telemetry.tracer.start_as_current_span("disabled") as span:
-        assert not span.is_recording()
-    shutdown()
+        env["AURALIS_TELEMETRY_ENABLED"] = value
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            """
+import sys
+from auralisy_intelligence import telemetry
+shutdown = telemetry.configure()
+with telemetry.tracer.start_as_current_span('disabled') as span:
+    assert not span.is_recording()
+shutdown()
+assert not any(name.startswith('opentelemetry.exporter.otlp') for name in sys.modules)
+""",
+        ],
+        env=env,
+        check=True,
+        timeout=15,
+    )
 
 
 @pytest.mark.parametrize("provider_name", ["openai", "deepseek"])

@@ -190,7 +190,8 @@ public final class RoundDispatcher {
                             diagnostics.skipped(phase, failure, execution);
                             return null;
                         }
-                        diagnostics.failed(phase, failure, execution);
+                        if (DbDiagnostics.isDatabaseFailure(failure))
+                            diagnostics.failed(phase, failure, execution);
                         LOG.warn(
                                 "AURALIS_DISPATCH_FAILED {} sqlstate={}",
                                 failure.getClass().getSimpleName(),

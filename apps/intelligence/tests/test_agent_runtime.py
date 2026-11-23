@@ -7,6 +7,7 @@ from pathlib import Path
 
 import httpx
 import pytest
+from auralisy_intelligence import telemetry
 from auralisy_intelligence.agents import (
     AgentClock,
     CallDenied,
@@ -18,7 +19,11 @@ from auralisy_intelligence.agents import (
 from auralisy_intelligence.agents.control_double import JavaControlDouble
 from auralisy_intelligence.agents.http import ControlHTTPClient
 from auralisy_intelligence.agents.pipeline import FirstBatchPipeline
-from auralisy_intelligence.agents.ports import DeliveryPending, RetryableDeliveryUnavailable
+from auralisy_intelligence.agents.ports import (
+    DeliveryPending,
+    RetryableDeliveryUnavailable,
+    RetryableUsageUnavailable,
+)
 from auralisy_intelligence.agents.resources import ServiceResources
 from auralisy_intelligence.agents.runtime import Execution
 from auralisy_intelligence.contracts import (
@@ -138,7 +143,17 @@ def supply():
     }
 
 
-def test_publication_waits_for_usage_ack_without_rebuying_model():
+@pytest.mark.parametrize(
+    ("failure", "reason", "eligible"),
+    [
+        (ControlUnavailable("CONTROL_UNAVAILABLE"), "OTHER", False),
+        (ControlUnavailable("CONTROL_RESPONSE_MISMATCH"), "OTHER", False),
+        (ContractError("IDEMPOTENCY_CONFLICT"), "OTHER", False),
+        (RetryableUsageUnavailable("CONTROL_UNAVAILABLE"), "LOCK_CONTENTION", True),
+        (asyncio.TimeoutError(), "RECEIPT_TIMEOUT", True),
+    ],
+)
+def test_publication_waits_for_usage_ack_without_rebuying_model(failure, reason, eligible):
     async def run():
         request = start()
         supervisor, control = setup(request)
@@ -150,7 +165,7 @@ def test_publication_waits_for_usage_ack_without_rebuying_model():
         async def delayed_receipt(execution_id, operation, payload):
             nonlocal delivered
             if operation == "usage-receipt" and not available:
-                raise ControlUnavailable("DELAYED_RECEIPT")
+                raise failure
             if operation == "delivery" and payload["kind"] == "LONG_REVIEW":
                 delivered += 1
             return await original(execution_id, operation, payload)
@@ -187,6 +202,8 @@ def test_publication_waits_for_usage_ack_without_rebuying_model():
             payload["invocation_ids"] = [plan["invocation_id"]]
             with pytest.raises(DeliveryPending) as pending:
                 await execution.deliver("LONG_REVIEW", payload)
+            assert execution._usage_failures[plan["invocation_id"]] == reason
+            assert isinstance(pending.value.__cause__, RetryableUsageUnavailable) is eligible
             assert delivered == 1
             available = True
             await execution._send_delivery(pending.value.delivery_id)
@@ -197,6 +214,48 @@ def test_publication_waits_for_usage_ack_without_rebuying_model():
         await supervisor.wait(execution.id)
         assert execution.status == "CLOSED", execution.error_code
         assert delivered == 2 and sent == 1
+
+    asyncio.run(run())
+
+
+def test_usage_metric_failure_preserves_provider_result_and_one_settlement(monkeypatch):
+    def broken_metrics(*args):
+        raise RuntimeError("fixture metrics failure")
+
+    monkeypatch.setattr(telemetry, "record_usage", broken_metrics)
+
+    async def run():
+        request = start()
+        supervisor, control = setup(request)
+        original = control.request
+        receipts = []
+        sends = []
+
+        async def record(execution_id, operation, payload):
+            if operation == "usage-receipt":
+                receipts.append(payload["receipt_id"])
+            return await original(execution_id, operation, payload)
+
+        control.request = record
+
+        async def stage(execution):
+            await bind(execution, control)
+            plan = execution.invocation_plan("SCREEN", "screen", {"fixture": True})
+
+            async def send():
+                sends.append(plan["invocation_id"])
+                return CallResult({"fixture": True}, usage=Usage(4, 6, 0))
+
+            result = await execution.invoke(plan, send, timeout_seconds=1)
+            assert result.output == {"fixture": True}
+            assert receipts == [result.invocation_id + ":usage"]
+            assert control.invocations[result.invocation_id]["settled"]
+            assert not execution.pending_usage
+
+        _, execution = await supervisor.accept(request, stage, control)
+        await supervisor.wait(execution.id)
+        assert execution.status == "CLOSED", execution.error_code
+        assert len(sends) == len(receipts) == 1
 
     asyncio.run(run())
 

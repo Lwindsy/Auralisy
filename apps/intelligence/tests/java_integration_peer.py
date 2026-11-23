@@ -17,10 +17,13 @@ from pathlib import Path
 from aiohttp import web
 from auralisy_intelligence.agents import CallResult, Usage
 from auralisy_intelligence.agents import __main__ as service
-from auralisy_intelligence.agents.ports import ControlUnavailable
+from auralisy_intelligence.agents.ports import CallDenied, ControlUnavailable
+from auralisy_intelligence.agents.runtime import Execution
 from auralisy_intelligence.providers import ToolGateway
 from auralisy_intelligence.providers.types import SearchHit
 from auralisy_intelligence.providers.web import FetchResponse
+
+fixture_invocation = ContextVar("fixture_invocation", default={})
 
 
 class Fixtures:
@@ -30,7 +33,18 @@ class Fixtures:
         self.dropped = set()
         self.tasks = set()
         self.long_calls = 0
-        self.first_long_delivery = None
+        self.probe_delivery = None
+
+    async def signal(self, name):
+        async def wait_for_signal():
+            while not (self.root / name).exists():
+                await asyncio.sleep(0.02)
+
+        try:
+            await asyncio.wait_for(wait_for_signal(), 30)
+        except asyncio.TimeoutError:
+            self.event("missing_signal", signal=name)
+            raise
 
     def controls(self):
         return json.loads((self.root / "faults.json").read_text(encoding="utf-8"))
@@ -53,19 +67,21 @@ class Fixtures:
         pass
 
     async def complete(self, binding, request):
-        self.event("model", schema=request.schema_name)
+        invocation = fixture_invocation.get()
+        self.event("model", schema=request.schema_name, **invocation)
         await asyncio.sleep(self.controls().get("model_delay_seconds", 0.01))
         faults = self.controls()
-        if faults.get("subject_lock_probe") and request.schema_name.startswith("long_review"):
-            self.long_calls += 1
-            if self.long_calls == 2:
-                self.event("long_call_inflight", album=request.input["album"]["title"])
-                try:
-                    while not (self.root / "finish-inflight-call").exists():
-                        await asyncio.sleep(0.02)
-                except asyncio.CancelledError:
-                    self.event("long_call_cancelled")
-                    raise
+        probe = faults.get("subject_lock_probe")
+        if request.schema_name.startswith("long_review"):
+            if probe in {"usage-503", "usage-timeout"}:
+                self.long_calls += 1
+                if self.long_calls == 1:
+                    self.event("usage_waiting", **invocation)
+                    await self.signal("resume-usage-provider")
+                else:
+                    await self.signal("resume-other-longs")
+            elif probe == "card":
+                await self.signal("resume-other-longs")
         while faults.get("hold_models") or (
             faults.get("hold_long") and request.schema_name.startswith("long_review")
         ):
@@ -255,7 +271,7 @@ class Fixtures:
         match = re.search(r"Synthetic Album (\d+)", query)
         assert match, "UNKNOWN_SYNTHETIC_ALBUM"
         number = int(match[1])
-        self.event("search", album=number)
+        self.event("search", album=number, **fixture_invocation.get())
         if number in self.controls().get("empty_source_albums", []):
             return CallResult((), usage=Usage(20, 20, 0))
         detail = (
@@ -300,6 +316,32 @@ def main():
     original_request = service.ControlHTTPClient.request
     callback = ContextVar("callback", default=None)
     lock_probe = fixture.controls().get("subject_lock_probe")
+    grant_probe = lock_probe == "grant"
+    first_grant = None
+
+    if lock_probe:
+        original_invoke = Execution.invoke
+
+        async def observed_invoke(self, plan, *args, **kwargs):
+            invocation = {
+                "invocation_id": plan["invocation_id"],
+                "execution_id": self.id,
+                "candidate_id": plan["candidate_id"],
+                "purpose": plan["purpose"],
+            }
+            token = fixture_invocation.set(invocation)
+            try:
+                return await original_invoke(self, plan, *args, **kwargs)
+            except CallDenied as error:
+                fixture.event("call_denied", code=str(error), **invocation)
+                raise
+            finally:
+                fixture_invocation.reset(token)
+
+        Execution.invoke = observed_invoke
+
+    async def record_attempt(request):
+        fixture.event("callback_request", **(callback.get() or {}))
 
     async def record_http(response):
         await response.aread()
@@ -318,6 +360,7 @@ def main():
         )
 
     async def observed_request(self, execution_id, operation, payload):
+        nonlocal first_grant
         fixture.event("control", operation=operation)
         identifiers = {
             key: payload[key]
@@ -325,23 +368,49 @@ def main():
             if key in payload
         }
         diagnostic = {"operation": operation, "execution_id": execution_id, **identifiers}
+        if (
+            lock_probe == "card"
+            and operation == "invocation-grants"
+            and payload["items"][0]["purpose"] == "WRITE_LONG"
+        ):
+            await fixture.signal("resume-other-longs")
+        if grant_probe and operation == "invocation-grants":
+            identifier = payload["items"][0]["invocation_id"]
+            diagnostic["invocation_id"] = identifier
+            if first_grant is None:
+                first_grant = identifier
+                fixture.event("grant_waiting", **diagnostic)
+                await fixture.signal("send-grant")
+            else:
+                await fixture.signal("resume-other-grants")
         if operation == "delivery":
             diagnostic["delivery_kind"] = payload["kind"]
             diagnostic["payload_digest"] = payload["payload_digest"]
-        if (
-            lock_probe
-            and operation == "delivery"
-            and payload["kind"] == "LONG_REVIEW"
-            and fixture.first_long_delivery is None
-        ):
-            fixture.first_long_delivery = payload["delivery_id"]
-            fixture.event(
-                "long_delivery_waiting",
-                **diagnostic,
-                invocation_ids=payload["payload"].get("invocation_ids", []),
+        if operation == "usage-receipt":
+            from auralisy_intelligence.contracts import digest
+
+            diagnostic["payload_digest"] = digest(payload)
+        if operation == "delivery" and lock_probe:
+            kind = payload["kind"]
+            body = payload["payload"]
+            if isinstance(body, dict):
+                diagnostic["invocation_ids"] = body.get("invocation_ids", [])
+            gate = (
+                lock_probe == "card"
+                and kind == "CARD_BATCH"
+                and bool(body["cards"])
+                or lock_probe == "long"
+                and kind == "LONG_REVIEW"
+                or lock_probe == "report"
+                and kind == "ROUND_REPORT"
             )
-            while not (fixture.root / "send-long-delivery").exists():
-                await asyncio.sleep(0.02)
+            if gate:
+                if fixture.probe_delivery is None:
+                    fixture.probe_delivery = payload["delivery_id"]
+                    fixture.event("delivery_waiting", **diagnostic)
+                    await fixture.signal("send-probe-delivery")
+                elif lock_probe == "long" and fixture.probe_delivery != payload["delivery_id"]:
+                    await fixture.signal("resume-other-longs")
         token = callback.set(diagnostic)
         if operation == "invocation-grants":
             (fixture.root / "last-grants-request.json").write_text(
@@ -358,6 +427,21 @@ def main():
                 await asyncio.sleep(0.2)
             result = await original_request(self, execution_id, operation, payload)
             faults = fixture.controls()
+            if (
+                lock_probe == "card"
+                and operation == "delivery"
+                and payload["delivery_id"] == fixture.probe_delivery
+                and "card_replay" not in fixture.dropped
+            ):
+                fixture.dropped.add("card_replay")
+                fixture.event(
+                    "card_first_commit", published=result["published_candidate_ids"], **diagnostic
+                )
+                await fixture.signal("replay-probe-card")
+                replay = await original_request(self, execution_id, operation, payload)
+                assert replay == result, "committed delivery replay changed its receipt"
+                fixture.event("card_replayed", **diagnostic)
+                await fixture.signal("card-replay-inspected")
             if operation == "usage-receipt" and payload["outcome"] == "UNCERTAIN":
 
                 async def settle_later():
@@ -389,6 +473,10 @@ def main():
                     "delivery",
                     id=payload["delivery_id"],
                     delivery_kind=payload["kind"],
+                    final_card_batch=payload["kind"] == "CARD_BATCH"
+                    and not payload["payload"]["cards"]
+                    and payload["payload"].get("pending", {}).get("supply_state")
+                    in {"R_EXHAUSTED", "SUFFICIENT"},
                     status=result["status"],
                     timing=payload["payload"].get("timing")
                     if isinstance(payload["payload"], dict)
@@ -410,6 +498,15 @@ def main():
                 fixture.event("response_lost", operation=operation)
                 raise ControlUnavailable("CONTROL_UNAVAILABLE")
             return result
+        except asyncio.CancelledError:
+            if lock_probe:
+                fixture.event(
+                    "callback_cancelled",
+                    exception="CancelledError",
+                    location="ControlHTTPClient.request",
+                    **diagnostic,
+                )
+            raise
         except Exception as error:
             fixture.event(
                 "control_error",
@@ -432,6 +529,7 @@ def main():
 
     def observed_app(supervisor, control, factory, **kwargs):
         if lock_probe:
+            control.client.event_hooks["request"].append(record_attempt)
             control.client.event_hooks["response"].append(record_http)
 
         def observed_factory(start):

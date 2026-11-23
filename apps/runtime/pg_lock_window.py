@@ -67,14 +67,19 @@ def lock_diagnostic_window(admin, connect_online, role):
             raise RuntimeError("DIAGNOSTICS_SETTINGS_NOT_APPLIED")
         yield evidence
     finally:
+        failed = []
         for name in SETTINGS:
             setting = sql.Identifier(name)
             if name in previous:
-                admin.execute(
-                    target + sql.SQL(" SET {} TO {}").format(setting, sql.Literal(previous[name]))
+                statement = target + sql.SQL(" SET {} TO {}").format(
+                    setting, sql.Literal(previous[name])
                 )
             else:
-                admin.execute(target + sql.SQL(" RESET {}").format(setting))
+                statement = target + sql.SQL(" RESET {}").format(setting)
+            try:
+                admin.execute(statement)
+            except Exception as error:
+                failed.append((name, error))
         stopped = admin.execute(
             """
             SELECT pg_terminate_backend(pid, 3000) FROM pg_stat_activity
@@ -85,5 +90,9 @@ def lock_diagnostic_window(admin, connect_online, role):
         if any(not success for (success,) in stopped):
             raise RuntimeError("DIAGNOSTICS_SESSION_TERMINATION_FAILED")
         evidence["restored"] = actual()
+        if failed:
+            raise RuntimeError(
+                "DIAGNOSTICS_SETTINGS_NOT_RESTORED:" + ",".join(name for name, _ in failed)
+            ) from failed[0][1]
         if overrides() != previous or evidence["restored"] != before:
             raise RuntimeError("DIAGNOSTICS_SETTINGS_NOT_RESTORED")

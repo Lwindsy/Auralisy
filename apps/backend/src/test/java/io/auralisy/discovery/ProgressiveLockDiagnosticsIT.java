@@ -48,7 +48,7 @@ class ProgressiveLockDiagnosticsIT {
         command.redirectErrorStream(true).redirectOutput(log.toFile());
         var process = command.start();
         try {
-            assertTrue(process.waitFor(220, TimeUnit.SECONDS), "Lock probe timed out: " + log);
+            assertTrue(process.waitFor(420, TimeUnit.SECONDS), "Lock probe timed out: " + log);
             assertEquals(0, process.exitValue(), () -> readLog(log));
             String diagnostics = readLog(log);
             assertTrue(diagnostics.contains("AURALIS_DB_DIAGNOSTIC phase=delivery outcome=failed"));

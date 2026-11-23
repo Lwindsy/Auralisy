@@ -140,5 +140,7 @@ V19按主体与资源拆锁：
 
 可观测性配置
 本地 Prometheus／Grafana／Tempo 和 Cloud Alloy 配置见 observability/usage.txt。
-在 java.env 与 python.env 启用 AURALIS_TELEMETRY_ENABLED，并按手册配置各自 OTLP 地址。
-指标抓取使用内部服务认证，发布后核对 Prometheus 两个目标及 Tempo 的实际推荐链路。
+若另行批准启用遥测，在 java.env 与 python.env 设置 AURALIS_TELEMETRY_ENABLED，
+按手册配置各自的 OTLP 地址和采样率，然后核对内部认证抓取及 Tempo 的实际推荐链路。
+上线后可通过内部 Prometheus 抓取观察 auralisy_db_lock_contention_total 的
+delivery 与 usage-receipt 阶段，结合连接超时和锁等待日志判断连接压力。

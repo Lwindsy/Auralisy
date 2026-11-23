@@ -6,6 +6,7 @@ import hashlib
 import http.cookiejar
 import json
 import os
+import re
 import secrets
 import socket
 import subprocess
@@ -53,14 +54,14 @@ def port():
         return sock.getsockname()[1]
 
 
-def wait_for(action, timeout=30):
+def wait_for(action, timeout=30, *, description=None):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         result = action()
         if result:
             return result
         time.sleep(0.035)
-    raise TimeoutError(f"timed out in {action.__name__}")
+    raise TimeoutError(f"missing event: {description or action.__name__}")
 
 
 def events(root):
@@ -347,7 +348,7 @@ def services(stack, root, args, jdbc, role, password, java_port, python_port, re
     stack.callback(shutdown)
     wait_for(lambda: healthy(origin, "/actuator/health/readiness") or check_alive(java), timeout=50)
     receipt["python_source_module"] = read(root / "python-pid.json")["source"]
-    return origin
+    return origin, token
 
 
 def check_alive(child):
@@ -356,36 +357,101 @@ def check_alive(child):
     return False
 
 
-def lock_round(root, browser, admin, connect_admin, role, polling, receipt):
-    def ready_to_lock():
-        observed = {
-            row["kind"]: row
+def notice(root, kind, **match):
+    return next(
+        (
+            row
             for row in events(root)
-            if row["kind"] in {"long_call_inflight", "long_delivery_waiting"}
-        }
-        cards = admin.execute(
-            "SELECT count(*) AS count FROM discovery.recommendation_card"
-        ).fetchone()
-        return observed if len(observed) == 2 and cards["count"] == 2 else None
+            if row["kind"] == kind and all(row.get(key) == value for key, value in match.items())
+        ),
+        None,
+    )
 
-    observed = wait_for(ready_to_lock)
-    delivery = observed["long_delivery_waiting"]
-    execution_id = delivery["execution_id"]
-    execution = admin.execute(
-        "SELECT i.subject_id,e.state,e.coordinator_boot,e.python_boot,"
+
+def execution_state(admin, execution):
+    return admin.execute(
+        "SELECT i.subject_id,e.session_id,e.round_id,e.state,e.coordinator_boot,e.python_boot,"
         "e.cancellation_requested,i.technical_deadline FROM discovery.execution e "
         "JOIN discovery.discovery_intent i ON i.id=e.run_id WHERE e.id=%s",
-        (execution_id,),
+        (execution,),
     ).fetchone()
-    assert execution["state"] == "RUNNING" and not execution["cancellation_requested"], execution
-    assert execution["technical_deadline"].timestamp() > time.time() + 5, execution
-    receipt.update(
-        execution=execution,
-        original_delivery=delivery,
-        inflight=observed["long_call_inflight"],
-        waiters=[],
-        polls=[],
+
+
+def read_metrics(origin, token):
+    request = urllib.request.Request(
+        origin + "/actuator/prometheus",
+        headers={"Authorization": "Bearer " + token, "X-Auralis-Audience": "coordinator"},
     )
+    with urllib.request.urlopen(request, timeout=4) as response:
+        body = response.read().decode()
+    selected = {}
+    for line in body.splitlines():
+        if line.startswith(
+            ("auralisy_db_lock_contention_total{", "hikaricp_connections_timeout_total")
+        ):
+            key, value = line.rsplit(" ", 1)
+            match = re.search(r'phase="([^"]+)"', key)
+            metric = match[1] if match else "connection_timeout"
+            selected[metric] = selected.get(metric, 0) + int(float(value))
+    assert "connection_timeout" in selected, "Hikari timeout counter missing"
+    return selected
+
+
+def waiting_backends(admin, role, receipt):
+    rows = admin.execute(
+        """SELECT pid, wait_event, pg_blocking_pids(pid) AS blockers
+           FROM pg_stat_activity WHERE datname=current_database() AND usename=%s
+           AND wait_event_type='Lock'""",
+        (role,),
+    ).fetchall()
+    if rows:
+        fingerprint = [(row["pid"], row["wait_event"], row["blockers"]) for row in rows]
+        if not receipt["waiters"] or receipt["waiters"][-1]["rows"] != fingerprint:
+            receipt["waiters"].append({"at": time.time(), "rows": fingerprint})
+    sample_peaks(admin, role, receipt)
+    return rows
+
+
+def publication_state(admin, execution):
+    session, round_id = execution["session_id"], execution["round_id"]
+    return {
+        "cards": admin.execute(
+            "SELECT candidate_id,state FROM discovery.recommendation_card WHERE session_id=%s AND round_id=%s ORDER BY candidate_id",
+            (session, round_id),
+        ).fetchall(),
+        "slots": admin.execute(
+            "SELECT * FROM discovery.card_slot WHERE session_id=%s ORDER BY slot_id", (session,)
+        ).fetchall(),
+        "reviews": admin.execute(
+            "SELECT candidate_id,state,generation_run,revision FROM discovery.long_review WHERE session_id=%s AND round_id=%s ORDER BY candidate_id",
+            (session, round_id),
+        ).fetchall(),
+        "intents": admin.execute(
+            "SELECT id,operation,status FROM discovery.discovery_intent WHERE session_id=%s ORDER BY id",
+            (session,),
+        ).fetchall(),
+    }
+
+
+def require_event(root, kind, **match):
+    return wait_for(lambda: notice(root, kind, **match), description=f"{kind} {match}")
+
+
+def case_lock(root, browser, admin, connect_admin, role, receipt, origin, token, probe):
+    usage = probe.startswith("usage-")
+    event = require_event(root, "usage_waiting" if usage else "delivery_waiting")
+    if probe != "card":
+        require_event(root, "delivery", final_card_batch=True)
+    execution_id = event["execution_id"]
+    execution = execution_state(admin, execution_id)
+    assert execution["state"] == "RUNNING" and not execution["cancellation_requested"], execution
+    assert execution["technical_deadline"].timestamp() > time.time() + 20, execution
+    match = (
+        {"invocation_id": event["invocation_id"], "operation": "usage-receipt"}
+        if usage
+        else {"delivery_id": event["delivery_id"]}
+    )
+    receipt.update(execution=execution, target=event, waiters=[], polls=[])
     stop = threading.Event()
 
     def poll():
@@ -397,47 +463,202 @@ def lock_round(root, browser, admin, connect_admin, role, polling, receipt):
             )
             stop.wait(max(0, 0.6 - (time.monotonic() - started)))
 
-    tracker = threading.Thread(target=poll, daemon=True) if polling else None
+    worker = threading.Thread(target=poll, daemon=True) if receipt["polling"] else None
+    other = Browser(origin)
+
+    def other_bootstrap():
+        start = time.monotonic()
+        status, _ = other.request("/v1/bootstrap", {})
+        return {"status": status, "elapsed": time.monotonic() - start}
+
+    receipt["metrics_before"] = read_metrics(origin, token)
+    receipt["other_subject_before"] = other_bootstrap()
     try:
         with connect_admin(autocommit=False) as locker:
-            receipt["lock_pid"] = locker.info.backend_pid
             assert locker.execute(
                 "SELECT id FROM discovery.subject WHERE id=%s FOR UPDATE",
                 (execution["subject_id"],),
             ).fetchone()
-            receipt["locked_at"] = time.time()
-            started = time.monotonic()
-            if tracker:
-                tracker.start()
-            (root / "send-long-delivery").touch()
-            seen = set()
-            while time.monotonic() - started < 5:
-                rows = admin.execute(
-                    """
-                    SELECT pid,wait_event_type,wait_event,pg_blocking_pids(pid) AS blockers
-                    FROM pg_stat_activity WHERE datname=current_database() AND usename=%s
-                    AND wait_event_type='Lock'
-                    """,
-                    (role,),
-                ).fetchall()
-                for row in rows:
-                    fingerprint = (row["pid"], row["wait_event"], tuple(row["blockers"]))
-                    if fingerprint not in seen:
-                        seen.add(fingerprint)
-                        receipt["waiters"].append({"at": time.time(), **row})
-                sample_peaks(admin, role, receipt)
-                time.sleep(0.04)
+            receipt.update(lock_pid=locker.info.backend_pid, locked_at=time.time())
+            (root / ("resume-usage-provider" if usage else "send-probe-delivery")).touch()
+            if worker:
+                worker.start()
+
+            def wait_blocked():
+                return [
+                    row
+                    for row in waiting_backends(admin, role, receipt)
+                    if receipt["lock_pid"] in row["blockers"]
+                ]
+
+            wait_for(wait_blocked, timeout=6, description="online waiter blocked by test holder")
+
+            def target_events(kind, **extra):
+                return [
+                    row
+                    for row in events(root)
+                    if row["kind"] == kind
+                    and all(row.get(key) == value for key, value in (match | extra).items())
+                ]
+
+            def ready_to_release():
+                waiting_backends(admin, role, receipt)
+                if probe == "usage-timeout":
+                    return len(target_events("callback_cancelled")) >= 3 and (
+                        len(target_events("callback_request")) >= 4
+                    )
+                blocked = target_events(
+                    "callback_http", status=503, retry_disposition="READ_STATUS_OR_SAFE_RETRY"
+                )
+                return len(blocked) >= (3 if probe == "long" else 1) and (
+                    probe != "long" or len(target_events("callback_request")) >= 4
+                )
+
+            if probe == "usage-timeout":
+
+                def overlapping_waits():
+                    rows = waiting_backends(admin, role, receipt)
+                    return rows if target_events("callback_cancelled") and len(rows) >= 2 else None
+
+                receipt["waiters_after_client_timeout"] = wait_for(
+                    overlapping_waits,
+                    timeout=6,
+                    description="multiple online waits after usage client timeout",
+                )
+
+            receipt["other_subject_during"] = other_bootstrap()
+            wait_for(
+                ready_to_release,
+                timeout=18,
+                description=f"{probe} replay failures and next attempt",
+            )
+            assert execution_state(admin, execution_id)["state"] == "RUNNING"
             locker.rollback()
             receipt["released_at"] = time.time()
     finally:
-        (root / "finish-inflight-call").touch()
         stop.set()
-        if tracker and tracker.ident:
-            tracker.join(6)
-    assert any(receipt["lock_pid"] in row["blockers"] for row in receipt["waiters"]), receipt[
-        "waiters"
-    ]
-    return execution_id, delivery["delivery_id"]
+        if worker and worker.ident:
+            worker.join(6)
+    if probe == "card":
+        first = require_event(root, "card_first_commit")
+        assert first["published"], first
+        before = publication_state(admin, execution)
+        (root / "replay-probe-card").touch()
+        require_event(root, "card_replayed")
+        after = publication_state(admin, execution)
+        receipt["card_replay"] = {"published": first["published"], "before": before, "after": after}
+        assert before == after, receipt["card_replay"]
+        (root / "card-replay-inspected").touch()
+    (root / "resume-other-longs").touch()
+    return execution_id, event.get("delivery_id", "-")
+
+
+def round_report_case(root, admin, connect_admin, role, receipt):
+    event = require_event(root, "delivery_waiting")
+    execution = execution_state(admin, event["execution_id"])
+    receipt.update(target=event, execution=execution, waiters=[])
+    identifier = event["delivery_id"]
+    admin.execute("CREATE TABLE diagnostic_report_gate(id text PRIMARY KEY)")
+    admin.execute("INSERT INTO diagnostic_report_gate VALUES (%s)", (identifier,))
+    admin.execute("""
+        CREATE FUNCTION pause_test_report() RETURNS trigger LANGUAGE plpgsql
+        SECURITY DEFINER SET search_path=pg_catalog AS $gate$
+        BEGIN
+          IF EXISTS (SELECT 1 FROM public.diagnostic_report_gate WHERE id=NEW.id) THEN
+            PERFORM pg_advisory_xact_lock(741701);
+          END IF;
+          RETURN NEW;
+        END $gate$;
+        CREATE TRIGGER pause_test_report AFTER INSERT ON discovery.delivery_receipt
+        FOR EACH ROW EXECUTE FUNCTION pause_test_report();
+        """)
+    admin.execute("SELECT pg_advisory_lock(741701)")
+    release = threading.Event()
+    locked = threading.Event()
+    holder = {}
+    errors = []
+
+    def take_subject():
+        try:
+            with connect_admin(autocommit=False) as locker:
+                holder["pid"] = locker.info.backend_pid
+                locker.execute("SET LOCAL statement_timeout='15s'")
+                locker.execute(
+                    "SELECT id FROM discovery.subject WHERE id=%s FOR UPDATE",
+                    (execution["subject_id"],),
+                ).fetchone()
+                locked.set()
+                if not release.wait(12):
+                    raise TimeoutError("missing event: release ROUND_REPORT subject")
+        except Exception as error:
+            errors.append(str(error))
+
+    thread = threading.Thread(target=take_subject, daemon=True)
+    try:
+        (root / "send-probe-delivery").touch()
+
+        def first_transaction_waiting():
+            return next(
+                (
+                    row
+                    for row in waiting_backends(admin, role, receipt)
+                    if row["wait_event"] == "advisory" and admin.info.backend_pid in row["blockers"]
+                ),
+                None,
+            )
+
+        first = wait_for(
+            first_transaction_waiting,
+            timeout=8,
+            description="first ROUND_REPORT transaction at trigger",
+        )
+        thread.start()
+
+        def queued_subject():
+            return (
+                holder.get("pid")
+                and first["pid"]
+                in admin.execute(
+                    "SELECT pg_blocking_pids(%s) AS blocked", (holder["pid"],)
+                ).fetchone()["blocked"]
+            )
+
+        wait_for(
+            queued_subject, timeout=6, description="administrator queued behind first transaction"
+        )
+        admin.execute("SELECT pg_advisory_unlock(741701)")
+        if not locked.wait(8):
+            raise TimeoutError(f"missing event: administrator acquired subject row ({errors})")
+        receipt.update(lock_pid=holder["pid"], locked_at=time.time())
+        receipt["committed_before_error"] = admin.execute(
+            "SELECT id FROM discovery.delivery_receipt WHERE id=%s", (identifier,)
+        ).fetchone()
+        assert receipt["committed_before_error"], event
+
+        def second_transaction_waiting():
+            return [
+                row
+                for row in waiting_backends(admin, role, receipt)
+                if holder["pid"] in row["blockers"]
+            ]
+
+        wait_for(
+            second_transaction_waiting,
+            timeout=5,
+            description="second ROUND_REPORT transaction waiting on the subject",
+        )
+        receipt["report_failure"] = require_event(
+            root, "callback_http", delivery_id=identifier, status=500
+        )
+        assert receipt["report_failure"]["retry_disposition"] == "STOP"
+    finally:
+        admin.execute("SELECT pg_advisory_unlock(741701)")
+        release.set()
+        if thread.ident:
+            thread.join(16)
+        receipt["released_at"] = time.time()
+    assert not errors, errors
+    return event["execution_id"], identifier
 
 
 def sample_peaks(admin, role, receipt):
@@ -476,6 +697,10 @@ def collect(root, admin, execution_id, delivery_id, receipt):
     receipt["errors"] = [
         row for row in all_events if row["kind"] in {"control_error", "stage_error"}
     ]
+    receipt["first_callback_failure"] = next(
+        (row for row in all_events if row["kind"] in {"control_error", "callback_cancelled"}),
+        None,
+    )
     receipt["provider_counts"] = dict(
         Counter(row["schema"] for row in all_events if row["kind"] == "model")
     )
@@ -526,11 +751,83 @@ def check_database_readiness(admin, role, origin):
         admin.execute(sql.SQL("ALTER ROLE {} LOGIN").format(identifier))
 
 
-def scenario(args, root, polling, lock):
+def grant_round(root, admin, connect_admin, role, receipt):
+    def event(kind, identifier=None):
+        return next(
+            (
+                row
+                for row in events(root)
+                if row["kind"] == kind
+                and (identifier is None or row.get("invocation_id") == identifier)
+            ),
+            None,
+        )
+
+    def grant_waiting():
+        return event("grant_waiting")
+
+    grant = wait_for(grant_waiting)
+    execution_id, invocation_id = grant["execution_id"], grant["invocation_id"]
+    subject = admin.execute(
+        "SELECT i.subject_id FROM discovery.execution e JOIN discovery.discovery_intent i "
+        "ON i.id=e.run_id WHERE e.id=%s",
+        (execution_id,),
+    ).fetchone()["subject_id"]
+
+    def ledger():
+        return {
+            table: admin.execute(
+                f"SELECT to_jsonb(t) AS row FROM discovery.{table} t ORDER BY 1"
+            ).fetchall()
+            for table in ("invocation", "budget_scope", "usage_receipt")
+        }
+
+    with connect_admin(autocommit=False) as locker:
+        assert locker.execute(
+            "SELECT id FROM discovery.subject WHERE id=%s FOR UPDATE", (subject,)
+        ).fetchone()
+        receipt["lock_pid"] = locker.info.backend_pid
+        before = ledger()
+        (root / "send-grant").touch()
+
+        def authorization_waiter():
+            sample_peaks(admin, role, receipt)
+            return admin.execute(
+                "SELECT pid,pg_blocking_pids(pid) AS blockers FROM pg_stat_activity "
+                "WHERE datname=current_database() AND usename=%s "
+                "AND %s=ANY(pg_blocking_pids(pid))",
+                (role, locker.info.backend_pid),
+            ).fetchall()
+
+        receipt["waiters"] = wait_for(authorization_waiter, timeout=4)
+
+        def authorization_completed():
+            return event("call_denied", invocation_id)
+
+        denied = wait_for(authorization_completed, timeout=8)
+        after = ledger()
+        receipt["authorization"] = {
+            "invocation_id": invocation_id,
+            "denial": denied,
+            "ledger_before": before,
+            "ledger_after": after,
+            "provider_sends": [row for row in events(root) if row["kind"] in {"model", "search"}],
+        }
+        locker.rollback()
+    (root / "resume-other-grants").touch()
+    return execution_id, "-"
+
+
+def scenario(args, root, polling, probe):
+    lock = probe is not None
     root.mkdir(parents=True)
     java_port, python_port = args.java_port or port(), port()
     albums, audience = assets(root, f"http://127.0.0.1:{java_port}")
-    write(root / "faults.json", {"subject_lock_probe": lock})
+    write(root / "faults.json", {"subject_lock_probe": probe})
+    if probe in {"usage-503", "usage-timeout"}:
+        service = read(root / "agent-service.json")
+        service["receipt_timeout_seconds"] = 3.5 if probe == "usage-503" else 0.3
+        write(root / "agent-service.json", service)
     # A fresh database and role avoid affecting any other IT or installed service.
     database = "auralis_core"
     role = "lock_verify_" + uuid4().hex
@@ -559,6 +856,7 @@ def scenario(args, root, polling, lock):
     receipt = {
         "polling": polling,
         "lock": lock,
+        "case": probe,
         "java_jar": str(args.jar),
         "java_jar_sha256": hashlib.sha256(args.jar.read_bytes()).hexdigest(),
         "python_source_root": str(INTELLIGENCE / "src"),
@@ -653,14 +951,20 @@ def scenario(args, root, polling, lock):
                     except psycopg.errors.DivisionByZero:
                         receipt["test_parameter_error"] = "22012"
             with contextlib.ExitStack() as processes:
-                origin = services(
+                origin, token = services(
                     processes, root, args, jdbc, role, password, java_port, python_port, receipt
                 )
                 browser = Browser(origin)
                 browser.submit()
-                if lock:
-                    execution, delivery = lock_round(
-                        root, browser, admin, connect_admin, role, polling, receipt
+                if probe == "grant":
+                    execution, delivery = grant_round(root, admin, connect_admin, role, receipt)
+                elif probe == "report":
+                    execution, delivery = round_report_case(
+                        root, admin, connect_admin, role, receipt
+                    )
+                elif lock:
+                    execution, delivery = case_lock(
+                        root, browser, admin, connect_admin, role, receipt, origin, token, probe
                     )
                 else:
                     execution = wait_for(
@@ -677,9 +981,11 @@ def scenario(args, root, polling, lock):
                         (execution,),
                     ).fetchone()["active"]
 
-                wait_for(released)
+                wait_for(released, description="physical execution release")
                 collect(root, admin, execution, delivery, receipt)
-                if lock and not polling:
+                if "metrics_before" in receipt:
+                    receipt["metrics_after"] = read_metrics(origin, token)
+                if probe == "long" and not polling:
                     receipt["readiness"] = check_database_readiness(admin, role, origin)
                 if not lock:
                     assert receipt["final_execution"]["state"] == "CLOSED", receipt[
@@ -695,48 +1001,126 @@ def scenario(args, root, polling, lock):
                     ), receipt["ledger"]
                     if args.hold:
                         time.sleep(args.hold)
+    except Exception as error:
+        receipt["failure"] = {"type": type(error).__name__, "message": str(error)}
+        raise
     finally:
         write(root / "receipt.json", receipt)
-    if lock:
-        assert_recovered(receipt)
+    if probe == "grant":
+        authorization = receipt["authorization"]
+        assert authorization["denial"]["code"] == "GRANT_UNCERTAIN", authorization
+        assert not authorization["provider_sends"], authorization
+        assert authorization["ledger_before"] == authorization["ledger_after"], authorization
+        assert all(
+            row["row"]["id"] != authorization["invocation_id"]
+            for row in authorization["ledger_after"]["invocation"]
+        ), authorization
+        callback = next(
+            row
+            for row in receipt["callbacks"]
+            if row.get("invocation_id") == authorization["invocation_id"]
+        )
+        assert (callback["status"], callback["retry_disposition"]) == (500, "STOP"), callback
+    elif probe == "report":
+        assert receipt["committed_before_error"]
+    elif lock:
+        assert_recovered(receipt, root)
 
 
-def assert_recovered(receipt):
+def assert_recovered(receipt, root):
     assert receipt["pipeline"][0]["name"] == "ProgressivePipeline", receipt["pipeline"]
     assert receipt["connection_peak"] <= 8, receipt["connection_peak"]
     assert not any(row["kind"] == "stage_error" for row in receipt["errors"]), receipt["errors"]
-    assert receipt["original_delivery_result"], receipt["errors"]
-    assert receipt["original_delivery_result"]["result"]["status"] == "ACCEPTED"
     assert not any(
         row["maintenance"]
         and row["coordinator_boot"] == receipt["execution"]["coordinator_boot"]
         and row["observed_at"].timestamp() >= receipt["locked_at"]
         for row in receipt["runtime_control"]
     ), receipt["runtime_control"]
-    assert not receipt["inflight_cancelled"], receipt["errors"]
     assert receipt["final_execution"]["physical_released_at"].timestamp() > receipt["released_at"]
     assert not receipt["final_execution"]["cancellation_requested"]
-    original_id = receipt["original_delivery"]["delivery_id"]
-    original_callbacks = [
-        row for row in receipt["callbacks"] if row.get("delivery_id") == original_id
-    ]
-    assert any(
-        row["status"] == 503
-        and row["error_code"] == "DEPENDENCY_UNAVAILABLE"
-        and row["retry_disposition"] == "READ_STATUS_OR_SAFE_RETRY"
-        for row in original_callbacks
-    ), original_callbacks
-    assert len({row["payload_digest"] for row in original_callbacks}) == 1
     assert bool(receipt["polls"]) == receipt["polling"]
+    assert receipt["other_subject_during"]["status"] == 200, receipt["other_subject_during"]
+    assert receipt["other_subject_during"]["elapsed"] < 2, receipt["other_subject_during"]
+    before, after = receipt["metrics_before"], receipt["metrics_after"]
+    assert after["connection_timeout"] == before["connection_timeout"], (before, after)
+    callbacks = receipt["callbacks"]
+    if receipt["case"].startswith("usage-"):
+        invocation = receipt["target"]["invocation_id"]
+        attempts = [
+            row
+            for row in events(root)
+            if row.get("invocation_id") == invocation and row.get("operation") == "usage-receipt"
+        ]
+        sent = [row for row in attempts if row["kind"] == "callback_request"]
+        assert len({(row["receipt_id"], row["payload_digest"]) for row in sent}) == 1, sent
+        assert any(row["kind"] == "callback_http" and row["status"] == 200 for row in attempts), (
+            attempts
+        )
+        assert (
+            len(
+                [
+                    row
+                    for row in events(root)
+                    if row["kind"] == "model" and row.get("invocation_id") == invocation
+                ]
+            )
+            == 1
+        )
+        target = next(row for row in receipt["ledger"] if row["id"] == invocation)
+        assert target["outcome"] == "COMPLETED" and target["receipts"] == 1, target
+        deliveries = [
+            row
+            for row in callbacks
+            if invocation in row.get("invocation_ids", [])
+            and row.get("delivery_kind") == "LONG_REVIEW"
+            and row["status"] == 200
+        ]
+        assert deliveries, callbacks
+        assert deliveries[0]["unix_time"] - receipt["released_at"] < 10
+        if receipt["case"] == "usage-503":
+            assert any(row["kind"] == "callback_http" and row["status"] == 503 for row in attempts)
+            responses = sum(
+                row["status"] == 503 for row in callbacks if row["operation"] == "usage-receipt"
+            )
+            assert after.get("usage-receipt", 0) - before.get("usage-receipt", 0) == responses, (
+                responses,
+                before,
+                after,
+            )
+        else:
+            assert len([row for row in attempts if row["kind"] == "callback_cancelled"]) >= 3
+            assert len(receipt["waiters_after_client_timeout"]) >= 2
+        return
+
+    assert receipt["original_delivery_result"]["result"]["status"] == "ACCEPTED"
+    original_id = receipt["target"]["delivery_id"]
+    original_callbacks = [row for row in callbacks if row.get("delivery_id") == original_id]
+    assert len({row["payload_digest"] for row in original_callbacks}) == 1, original_callbacks
     assert original_callbacks[-1]["status"] == 200, original_callbacks
-    assert sum(row["status"] == 200 for row in original_callbacks) == 1
-    long_calls = [row for row in receipt["ledger"] if row["purpose"] == "WRITE_LONG"]
-    assert sum(row["send_consumed"] for row in long_calls) == sum(
-        count
-        for schema, count in receipt["provider_counts"].items()
-        if schema.startswith("long_review")
+    assert original_callbacks[-1]["unix_time"] - receipt["released_at"] < 10
+    responses = sum(row["status"] == 503 for row in original_callbacks)
+    assert responses >= (3 if receipt["case"] == "long" else 1)
+    # Each explicit contention response must account for one increment, not one per handler.
+    all_deliveries = sum(
+        row["status"] == 503 for row in callbacks if row["operation"] == "delivery"
     )
-    assert len(long_calls) >= 2 and all(row["receipts"] == 1 for row in long_calls), long_calls
+    assert after.get("delivery", 0) - before.get("delivery", 0) == all_deliveries, (
+        all_deliveries,
+        before,
+        after,
+    )
+    assert sum(row["status"] == 200 for row in original_callbacks) == (
+        2 if receipt["case"] == "card" else 1
+    )
+    long_calls = [row for row in receipt["ledger"] if row["purpose"] == "WRITE_LONG"]
+    assert len(long_calls) == 2 and all(
+        row["receipts"] == 1 and row["outcome"] == "COMPLETED" for row in long_calls
+    ), long_calls
+    model_calls = [
+        row for row in events(root) if row["kind"] == "model" and row.get("purpose") == "WRITE_LONG"
+    ]
+    assert len({row["invocation_id"] for row in model_calls}) == len(model_calls) == 2, model_calls
 
 
 def main():
@@ -751,22 +1135,32 @@ def main():
     parser.add_argument("--service-token-file", type=Path)
     parser.add_argument("--hold", type=int, default=0)
     parser.add_argument("--smoke", action="store_true")
+    parser.add_argument("--grant-only", action="store_true")
+    parser.add_argument(
+        "--probe", choices=("grant", "card", "long", "usage-503", "usage-timeout", "report")
+    )
     args = parser.parse_args()
     args.jar = args.jar.resolve(strict=True)
     args.output = args.output.resolve()
     args.output.mkdir(parents=True, exist_ok=False)
-    if args.smoke:
-        scenario(args, args.output / "synthetic", False, False)
+    if args.grant_only:
+        scenario(args, args.output / "grant", False, "grant")
+    elif args.probe:
+        scenario(args, args.output / args.probe, False, args.probe)
+    elif args.smoke:
+        scenario(args, args.output / "synthetic", False, None)
     else:
-        failures = []
-        for name, poll in (("without-polling", False), ("with-polling", True)):
-            try:
-                scenario(args, args.output / name, poll, True)
-            except Exception as error:
-                failures.append(error)
-                print(f"{name}: {type(error).__name__}: {error}", file=sys.stderr, flush=True)
-        if failures:
-            raise failures[0]
+        cases = (
+            ("grant", False, "grant"),
+            ("card", False, "card"),
+            ("without-polling", False, "long"),
+            ("with-polling", True, "long"),
+            ("usage-503", False, "usage-503"),
+            ("usage-timeout", False, "usage-timeout"),
+            ("round-report", False, "report"),
+        )
+        for name, poll, probe in cases:
+            scenario(args, args.output / name, poll, probe)
 
 
 if __name__ == "__main__":

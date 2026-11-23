@@ -8,8 +8,16 @@ class ControlUnavailable(RuntimeError):
     """The control operation has no usable response; mutation may have happened."""
 
 
-class RetryableDeliveryUnavailable(ControlUnavailable):
+class RetryablePublicationUnavailable(ControlUnavailable):
+    """A publication step permits bounded replay of its original payload."""
+
+
+class RetryableDeliveryUnavailable(RetryablePublicationUnavailable):
     """Java explicitly permits replay of this delivery after database contention."""
+
+
+class RetryableUsageUnavailable(RetryablePublicationUnavailable):
+    """A usage receipt can be replayed without repeating the provider call."""
 
 
 class DeliveryPending(ControlUnavailable):
