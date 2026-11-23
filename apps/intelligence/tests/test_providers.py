@@ -375,11 +375,11 @@ def test_unknown_usage_is_null_and_search_locations_are_not_read_receipts():
     asyncio.run(run())
 
 
-def web_execution():
+def web_execution(binding=BINDING):
     request = start()
     request["capabilities"] = ["web_read.v1", "web_search.v1"]
     request["web_guards"].update(max_bytes=10000, read_timeout_ms=1000, max_redirects=2)
-    request["model_bindings"]["screen"] = BINDING.wire()
+    request["model_bindings"]["screen"] = binding.wire()
     request["payload_digest"] = content_digest(request)
     _, control = setup(request)
     return Execution(request, control), control

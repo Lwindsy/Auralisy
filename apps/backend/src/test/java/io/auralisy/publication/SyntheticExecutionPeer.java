@@ -30,11 +30,17 @@ final class SyntheticExecutionPeer implements AutoCloseable {
     final AtomicBoolean failLongNext = new AtomicBoolean();
     final AtomicBoolean exhaustSupplyNext = new AtomicBoolean();
     volatile boolean hold, holdReports, holdLongs;
+    volatile FirstBatchProbe firstBatchProbe;
     volatile long longDelayMs = 600;
     volatile int recallLimit = Integer.MAX_VALUE;
     volatile String controlBase;
     final JsonNode settings;
     final List<String> albums;
+
+    static final class FirstBatchProbe {
+        final CompletableFuture<ObjectNode> delivery = new CompletableFuture<>();
+        final CompletableFuture<JsonNode> result = new CompletableFuture<>();
+    }
 
     static final class Job {
         final ObjectNode start;
@@ -47,6 +53,7 @@ final class SyntheticExecutionPeer implements AutoCloseable {
         volatile String status = "ACCEPTED", phase = "FOREGROUND";
         volatile JsonNode display;
         JsonNode bundle;
+        String deferredFirstLong;
         int longReady;
 
         Job(ObjectNode start, boolean basic, boolean failLong) {
@@ -264,21 +271,7 @@ final class SyntheticExecutionPeer implements AutoCloseable {
                                     payload.path("receipt_id").asText(), StandardCharsets.UTF_8);
             method = "PUT";
         }
-        String request = UUID.randomUUID().toString();
-        var message = envelope(type, payload, request);
-        if (!wire.valid(message)) throw new IllegalStateException("INVALID_SYNTHETIC_" + type);
-        var http =
-                HttpRequest.newBuilder(URI.create(controlBase + "/internal/v1" + path))
-                        .timeout(Duration.ofSeconds(8))
-                        .header("Authorization", "Bearer " + TOKEN)
-                        .header("X-Auralis-Audience", "coordinator")
-                        .header("Content-Type", "application/json")
-                        .method(
-                                method,
-                                HttpRequest.BodyPublishers.ofByteArray(
-                                        JSON.writeValueAsBytes(message)))
-                        .build();
-        var response = client.send(http, HttpResponse.BodyHandlers.ofByteArray());
+        var response = controlResponse(method, path, type, payload);
         var decoded = JSON.readTree(response.body());
         if (response.statusCode() >= 400)
             throw new IllegalStateException(
@@ -294,7 +287,52 @@ final class SyntheticExecutionPeer implements AutoCloseable {
         return decoded.path("payload");
     }
 
+    HttpResponse<byte[]> deliveryResponse(ObjectNode delivery) throws Exception {
+        String deliveryId = delivery.path("delivery_id").asText();
+        return controlResponse(
+                "PUT",
+                "/executions/"
+                        + deliveryId.substring(0, deliveryId.indexOf(':'))
+                        + "/deliveries/"
+                        + URLEncoder.encode(deliveryId, StandardCharsets.UTF_8),
+                "Delivery",
+                delivery);
+    }
+
+    private HttpResponse<byte[]> controlResponse(
+            String method, String path, String type, JsonNode payload) throws Exception {
+        String request = UUID.randomUUID().toString();
+        var message = envelope(type, payload, request);
+        if (!wire.valid(message)) throw new IllegalStateException("INVALID_SYNTHETIC_" + type);
+        var http =
+                HttpRequest.newBuilder(URI.create(controlBase + "/internal/v1" + path))
+                        .timeout(Duration.ofSeconds(8))
+                        .header("Authorization", "Bearer " + TOKEN)
+                        .header("X-Auralis-Audience", "coordinator")
+                        .header("Content-Type", "application/json")
+                        .method(
+                                method,
+                                HttpRequest.BodyPublishers.ofByteArray(
+                                        JSON.writeValueAsBytes(message)))
+                        .build();
+        return client.send(http, HttpResponse.BodyHandlers.ofByteArray());
+    }
+
     private JsonNode deliver(Job j, String kind, JsonNode payload, String run) throws Exception {
+        var probe = firstBatchProbe;
+        boolean intercepted =
+                probe != null
+                        && kind.equals("CARD_BATCH")
+                        && payload.path("batch_kind").asText().equals("FIRST");
+        if (intercepted) {
+            var firstCard = (ObjectNode) payload.path("cards").get(0);
+            j.deferredFirstLong = firstCard.path("candidate_id").asText();
+            firstCard.put("long_review_state", "NOT_STARTED");
+            ((ObjectNode) payload.path("pending"))
+                    .put(
+                            "long_reviews_generating",
+                            payload.path("pending").path("long_reviews_generating").asInt() - 1);
+        }
         var d =
                 JSON.createObjectNode()
                         .put("delivery_id", j.id() + ":delivery:" + j.delivery.incrementAndGet())
@@ -308,7 +346,11 @@ final class SyntheticExecutionPeer implements AutoCloseable {
                 .add(j.start.path("model_bindings").path("write").path("ref").asText());
         d.set("payload", payload);
         d.put("payload_digest", digest(payload));
-        var result = control(j, "delivery", "Delivery", d);
+        JsonNode result;
+        if (intercepted) {
+            probe.delivery.complete(d.deepCopy());
+            result = probe.result.get(20, TimeUnit.SECONDS);
+        } else result = control(j, "delivery", "Delivery", d);
         for (var item : result.path("items"))
             if (item.path("decision").asText().equals("REJECTED"))
                 throw new IllegalStateException("REJECTED_SYNTHETIC_CARD_" + item);
@@ -722,7 +764,8 @@ final class SyntheticExecutionPeer implements AutoCloseable {
                 j.phase = "BACKGROUND";
                 long until = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(longDelayMs);
                 while ((System.nanoTime() < until || holdLongs) && !j.cancelled) Thread.sleep(10);
-                for (var id : result.path("published_candidate_ids")) longReview(j, id.asText());
+                for (var id : result.path("published_candidate_ids"))
+                    if (!id.asText().equals(j.deferredFirstLong)) longReview(j, id.asText());
                 report(j, null);
             }
             j.status = "CLOSED";

@@ -11,15 +11,20 @@ import os
 import re
 import time
 import traceback
+from contextvars import ContextVar
 from pathlib import Path
 
 from aiohttp import web
 from auralisy_intelligence.agents import CallResult, Usage
 from auralisy_intelligence.agents import __main__ as service
-from auralisy_intelligence.agents.ports import ControlUnavailable
+from auralisy_intelligence.agents.ports import CallDenied, ControlUnavailable
+from auralisy_intelligence.agents.runtime import Execution
 from auralisy_intelligence.providers import ToolGateway
 from auralisy_intelligence.providers.types import SearchHit
 from auralisy_intelligence.providers.web import FetchResponse
+
+fixture_invocation = ContextVar("fixture_invocation", default={})
+fixture_delivery = ContextVar("fixture_delivery", default=False)
 
 
 class Fixtures:
@@ -28,21 +33,58 @@ class Fixtures:
         self.repairs = set()
         self.dropped = set()
         self.tasks = set()
+        self.long_calls = 0
+        self.probe_delivery = None
+        self.usage_target = None
+
+    async def signal(self, name):
+        async def wait_for_signal():
+            while not (self.root / name).exists():
+                await asyncio.sleep(0.02)
+
+        try:
+            await asyncio.wait_for(wait_for_signal(), 30)
+        except asyncio.TimeoutError:
+            self.event("missing_signal", signal=name)
+            raise
 
     def controls(self):
         return json.loads((self.root / "faults.json").read_text(encoding="utf-8"))
 
     def event(self, kind, **values):
         with (self.root / "provider-events.jsonl").open("a", encoding="utf-8") as output:
-            output.write(json.dumps({"kind": kind, "monotonic": time.monotonic(), **values}) + "\n")
+            output.write(
+                json.dumps(
+                    {
+                        "kind": kind,
+                        "monotonic": time.monotonic(),
+                        "unix_time": time.time(),
+                        **values,
+                    }
+                )
+                + "\n"
+            )
 
     def check_binding(self, binding, *, search=False):
         pass
 
     async def complete(self, binding, request):
-        self.event("model", schema=request.schema_name)
+        invocation = fixture_invocation.get()
+        self.event("model", schema=request.schema_name, **invocation)
         await asyncio.sleep(self.controls().get("model_delay_seconds", 0.01))
         faults = self.controls()
+        probe = faults.get("subject_lock_probe")
+        if request.schema_name.startswith("long_review"):
+            if probe in {"usage-503", "usage-timeout"}:
+                self.long_calls += 1
+                if self.long_calls == 1:
+                    self.usage_target = invocation["invocation_id"]
+                    self.event("usage_waiting", **invocation)
+                    await self.signal("resume-usage-provider")
+                else:
+                    await self.signal("resume-other-longs")
+            elif probe == "card":
+                await self.signal("resume-other-longs")
         while faults.get("hold_models") or (
             faults.get("hold_long") and request.schema_name.startswith("long_review")
         ):
@@ -232,7 +274,7 @@ class Fixtures:
         match = re.search(r"Synthetic Album (\d+)", query)
         assert match, "UNKNOWN_SYNTHETIC_ALBUM"
         number = int(match[1])
-        self.event("search", album=number)
+        self.event("search", album=number, **fixture_invocation.get())
         if number in self.controls().get("empty_source_albums", []):
             return CallResult((), usage=Usage(20, 20, 0))
         detail = (
@@ -271,11 +313,128 @@ def main():
     parser.add_argument("--port", type=int, required=True)
     args = parser.parse_args()
     fixture = Fixtures(Path(args.config).resolve().parent)
-    (fixture.root / "python-pid.json").write_text(json.dumps({"pid": os.getpid()}))
+    (fixture.root / "python-pid.json").write_text(
+        json.dumps({"pid": os.getpid(), "source": service.__file__}), encoding="utf-8"
+    )
     original_request = service.ControlHTTPClient.request
+    callback = ContextVar("callback", default=None)
+    lock_probe = fixture.controls().get("subject_lock_probe")
+    grant_probe = lock_probe == "grant"
+    first_grant = None
+
+    if lock_probe in {"usage-503", "usage-timeout"}:
+        original_delivery = Execution._send_delivery
+
+        async def observe_delivery(self, *args, **kwargs):
+            token = fixture_delivery.set(True)
+            try:
+                return await original_delivery(self, *args, **kwargs)
+            finally:
+                fixture_delivery.reset(token)
+
+        Execution._send_delivery = observe_delivery
+
+    if lock_probe:
+        original_invoke = Execution.invoke
+
+        async def observed_invoke(self, plan, *args, **kwargs):
+            invocation = {
+                "invocation_id": plan["invocation_id"],
+                "execution_id": self.id,
+                "candidate_id": plan["candidate_id"],
+                "purpose": plan["purpose"],
+            }
+            token = fixture_invocation.set(invocation)
+            try:
+                return await original_invoke(self, plan, *args, **kwargs)
+            except CallDenied as error:
+                fixture.event("call_denied", code=str(error), **invocation)
+                raise
+            finally:
+                fixture_invocation.reset(token)
+
+        Execution.invoke = observed_invoke
+
+    async def record_attempt(request):
+        fixture.event("callback_request", **(callback.get() or {}))
+
+    async def record_http(response):
+        await response.aread()
+        try:
+            error = response.json().get("payload", {})
+            error_code = error.get("code")
+            disposition = error.get("retry_disposition")
+        except (ValueError, AttributeError):
+            error_code = disposition = None
+        fixture.event(
+            "callback_http",
+            status=response.status_code,
+            error_code=error_code,
+            retry_disposition=disposition,
+            **(callback.get() or {}),
+        )
 
     async def observed_request(self, execution_id, operation, payload):
+        nonlocal first_grant
         fixture.event("control", operation=operation)
+        identifiers = {
+            key: payload[key]
+            for key in ("delivery_id", "invocation_id", "receipt_id")
+            if key in payload
+        }
+        diagnostic = {"operation": operation, "execution_id": execution_id, **identifiers}
+        if (
+            lock_probe == "card"
+            and operation == "invocation-grants"
+            and payload["items"][0]["purpose"] == "WRITE_LONG"
+        ):
+            await fixture.signal("resume-other-longs")
+        if grant_probe and operation == "invocation-grants":
+            identifier = payload["items"][0]["invocation_id"]
+            diagnostic["invocation_id"] = identifier
+            if first_grant is None:
+                first_grant = identifier
+                fixture.event("grant_waiting", **diagnostic)
+                await fixture.signal("send-grant")
+            else:
+                await fixture.signal("resume-other-grants")
+        if operation == "delivery":
+            diagnostic["delivery_kind"] = payload["kind"]
+            diagnostic["payload_digest"] = payload["payload_digest"]
+        if operation == "usage-receipt":
+            from auralisy_intelligence.contracts import digest
+
+            diagnostic["payload_digest"] = digest(payload)
+            diagnostic["flush_stage"] = "delivery" if fixture_delivery.get() else "footer"
+            if (
+                lock_probe == "usage-503"
+                and payload["invocation_id"] == fixture.usage_target
+                and not fixture_delivery.get()
+            ):
+                fixture.event("usage_footer_deferred", **diagnostic)
+                raise ControlUnavailable("FIXTURE_DEFERRED_USAGE")
+        if operation == "delivery" and lock_probe:
+            kind = payload["kind"]
+            body = payload["payload"]
+            if isinstance(body, dict):
+                diagnostic["invocation_ids"] = body.get("invocation_ids", [])
+            gate = (
+                lock_probe == "card"
+                and kind == "CARD_BATCH"
+                and bool(body["cards"])
+                or lock_probe == "long"
+                and kind == "LONG_REVIEW"
+                or lock_probe == "report"
+                and kind == "ROUND_REPORT"
+            )
+            if gate:
+                if fixture.probe_delivery is None:
+                    fixture.probe_delivery = payload["delivery_id"]
+                    fixture.event("delivery_waiting", **diagnostic)
+                    await fixture.signal("send-probe-delivery")
+                elif lock_probe == "long" and fixture.probe_delivery != payload["delivery_id"]:
+                    await fixture.signal("resume-other-longs")
+        token = callback.set(diagnostic)
         if operation == "invocation-grants":
             (fixture.root / "last-grants-request.json").write_text(
                 json.dumps({"execution": execution_id, "payload": payload}), encoding="utf-8"
@@ -291,6 +450,21 @@ def main():
                 await asyncio.sleep(0.2)
             result = await original_request(self, execution_id, operation, payload)
             faults = fixture.controls()
+            if (
+                lock_probe == "card"
+                and operation == "delivery"
+                and payload["delivery_id"] == fixture.probe_delivery
+                and "card_replay" not in fixture.dropped
+            ):
+                fixture.dropped.add("card_replay")
+                fixture.event(
+                    "card_first_commit", published=result["published_candidate_ids"], **diagnostic
+                )
+                await fixture.signal("replay-probe-card")
+                replay = await original_request(self, execution_id, operation, payload)
+                assert replay == result, "committed delivery replay changed its receipt"
+                fixture.event("card_replayed", **diagnostic)
+                await fixture.signal("card-replay-inspected")
             if operation == "usage-receipt" and payload["outcome"] == "UNCERTAIN":
 
                 async def settle_later():
@@ -322,6 +496,10 @@ def main():
                     "delivery",
                     id=payload["delivery_id"],
                     delivery_kind=payload["kind"],
+                    final_card_batch=payload["kind"] == "CARD_BATCH"
+                    and not payload["payload"]["cards"]
+                    and payload["payload"].get("pending", {}).get("supply_state")
+                    in {"R_EXHAUSTED", "SUFFICIENT"},
                     status=result["status"],
                     timing=payload["payload"].get("timing")
                     if isinstance(payload["payload"], dict)
@@ -343,27 +521,55 @@ def main():
                 fixture.event("response_lost", operation=operation)
                 raise ControlUnavailable("CONTROL_UNAVAILABLE")
             return result
+        except asyncio.CancelledError:
+            if lock_probe:
+                fixture.event(
+                    "callback_cancelled",
+                    exception="CancelledError",
+                    location="ControlHTTPClient.request",
+                    **diagnostic,
+                )
+            raise
         except Exception as error:
-            fixture.event("control_error", operation=operation, error=str(error))
+            fixture.event(
+                "control_error",
+                error=str(error),
+                exception=type(error).__name__,
+                location=traceback.extract_tb(error.__traceback__)[-1].name,
+                **diagnostic,
+            )
             if operation == "delivery":
                 # This standalone test service has synthetic outputs only; never used in serve.
                 (fixture.root / "rejected-delivery.json").write_text(
                     json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
                 )
             raise
+        finally:
+            callback.reset(token)
 
     service.ControlHTTPClient.request = observed_request
     original_app = service.create_execution_app
 
     def observed_app(supervisor, control, factory, **kwargs):
+        if lock_probe:
+            control.client.event_hooks["request"].append(record_attempt)
+            control.client.event_hooks["response"].append(record_http)
+
         def observed_factory(start):
             pipeline = factory(start)
 
             async def run(execution):
+                if lock_probe:
+                    fixture.event("pipeline", name=type(pipeline.pipeline).__name__)
                 try:
                     await pipeline(execution)
-                except Exception:
-                    fixture.event("stage_error", traceback=traceback.format_exc())
+                except Exception as error:
+                    fixture.event(
+                        "stage_error",
+                        error=type(error).__name__,
+                        code=str(error),
+                        traceback=traceback.format_exc(),
+                    )
                     raise
 
             return run

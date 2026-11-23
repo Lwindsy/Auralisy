@@ -19,6 +19,7 @@ import org.springframework.stereotype.Service;
 @Service
 public class PostgresBudgetAuthority implements BudgetAuthority {
     private final JdbcTemplate jdbc;
+    private final io.micrometer.core.instrument.MeterRegistry meters;
     private final ShortTransactions tx;
     private final SessionStore sessions;
     private final ExecutionReadAccess executions;
@@ -31,13 +32,15 @@ public class PostgresBudgetAuthority implements BudgetAuthority {
             SessionStore sessions,
             ExecutionReadAccess executions,
             EvidenceAuthority evidence,
-            MessageDefinitions schema) {
+            MessageDefinitions schema,
+            io.micrometer.core.instrument.MeterRegistry meters) {
         this.jdbc = jdbc;
         this.tx = tx;
         this.sessions = sessions;
         this.executions = executions;
         this.evidence = evidence;
         this.schema = schema;
+        this.meters = meters;
     }
 
     private static void fail(String code) {
@@ -562,6 +565,26 @@ public class PostgresBudgetAuthority implements BudgetAuthority {
                                 nullable(r, "output_tokens"),
                                 r.path("finish").asText(),
                                 id);
+                        long committedCharge = charge;
+                        var span = io.opentelemetry.api.trace.Span.current();
+                        org.springframework.transaction.support.TransactionSynchronizationManager
+                                .registerSynchronization(
+                                        new org.springframework.transaction.support
+                                                .TransactionSynchronization() {
+                                            @Override
+                                            public void afterCommit() {
+                                                meters.counter(
+                                                                "auralisy.cost.usd",
+                                                                "kind",
+                                                                (String)
+                                                                        invocation.get(
+                                                                                "cost_class"))
+                                                        .increment(committedCharge / 1_000_000.0);
+                                                span.setAttribute(
+                                                        "auralisy.cost.usd",
+                                                        committedCharge / 1_000_000.0);
+                                            }
+                                        });
                     } else if (charge == null) {
                         // An uncertain/processed call can never be downgraded to definitely unsent.
                         if (!outcome.equals("NOT_PROCESSED"))

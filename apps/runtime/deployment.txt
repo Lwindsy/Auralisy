@@ -9,6 +9,29 @@ Java、Python、Caddy使用Linux宿主网络，保留内部literal-loopback约�
 PostgreSQL只映射127.0.0.1:15439，数据位于auralis_database命名卷。
 Caddy仅公开前端和/v1/，内部及管理端点返回404。
 
+生产当前未启用遥测。启用属于另行批准的运维变更。Java 的行锁诊断日志随应用启动。
+如已批准在隔离数据库开诊断窗口，管理员先保存在线角色与实际数据库的现有覆盖：
+
+  SELECT s.setconfig FROM pg_db_role_setting s
+    JOIN pg_database d ON d.oid=s.setdatabase JOIN pg_roles r ON r.oid=s.setrole
+    WHERE d.datname='auralis_core_verify' AND r.rolname='auralis_online';
+
+初始化角色后、连接池启动前逐条设置。把示例库名换为本次隔离库名。
+
+  ALTER ROLE auralis_online IN DATABASE auralis_core_verify SET log_lock_waits = on;
+  ALTER ROLE auralis_online IN DATABASE auralis_core_verify SET deadlock_timeout = '500ms';
+  ALTER ROLE auralis_online IN DATABASE auralis_core_verify SET log_min_error_statement = 'error';
+
+用在线角色重新登录，SHOW 核对三项和 log_parameter_max_length_on_error=0。
+窗口结束（含失败退出）先停应用，原有覆盖逐项用 ALTER ROLE ... IN DATABASE ... SET 恢复。
+某项原无覆盖时才执行对应的 RESET，例如：
+
+  ALTER ROLE auralis_online IN DATABASE auralis_core_verify RESET log_lock_waits;
+  ALTER ROLE auralis_online IN DATABASE auralis_core_verify RESET deadlock_timeout;
+  ALTER ROLE auralis_online IN DATABASE auralis_core_verify RESET log_min_error_statement;
+
+终止窗口中新建的在线角色连接，再用该角色新登录核对原值。生产 PG 保持既有配置。
+
 运行准备（首次部署由运维执行，不由CI创建或复制音乐数据）：
 - /etc/auralis/{database,java,python,migrate,web}.env：root所有、权限600；
   分别注入数据库管理员、普通在线账号、Python模型密钥、离线迁移身份和域名。
@@ -61,7 +84,7 @@ apps/frontend/wallpaper.html、apps/frontend/src/wallpaper/、wallpaper.css及�
 它们在访客本机运行，不部署到服务器。共享前端组件、词条和构建配置仍触发完整检查。
 含其他文件的PR运行检查；main推送或在main手动执行通过检查后自动部署。
 检查包含Python Ruff、Pytest、Java Spotless及构建、前端类型/格式检查、单元测试及构建。
-独立PostgreSQL另运行执行状态轮询的锁竞争回归，防止短暂行锁导致推荐中断。
+独立PostgreSQL另运行执行状态轮询、诊断日志和长评交付的锁竞争回归。
 GitHub Secrets：DEPLOY_HOST、DEPLOY_KEY、DEPLOY_KNOWN_HOSTS。
 GitHub变量：PRODUCT_URL（无末尾斜杠）。SSH主机密钥须独立核验，不临时自动信任。
 发布包只包含git archive产品内容与已检查前端dist，不包含私有工作资料。
@@ -114,3 +137,10 @@ V19按主体与资源拆锁：
 传播度索引（产品0.22／内部0.36）
 部署脚本在排空并停止Java／Python后运行Compose prepare-reach。它从现有agent-service.json指定的taxonomy、recall_snapshot、audience_snapshot生成独立reach卷内的genre-reach.json；准备容器无网络，原数据只读，失败不启动新服务。Java／Python只读挂载同一文件，通过AURALIS_GENRE_REACH_INDEX定位。每次部署重建，用户请求不扫描统计。索引v2按父类自身及后代的专辑去重统计，不能复用旧v1文件。目录、taxonomy、听众窗口或召回快照改变时必须配套更新。
 无DDL迁移。回退仍须排空，并恢复匹配的三端与配置；新相对传播度会话不能交旧服务继续，需重新提交旧版输入。保留既有费用和删除记录。Windows host及本地预览也在服务启动前通过相同准备器生成索引。
+
+可观测性配置
+本地 Prometheus／Grafana／Tempo 和 Cloud Alloy 配置见 observability/usage.txt。
+若另行批准启用遥测，在 java.env 与 python.env 设置 AURALIS_TELEMETRY_ENABLED，
+按手册配置各自的 OTLP 地址和采样率，然后核对内部认证抓取及 Tempo 的实际推荐链路。
+上线后可通过内部 Prometheus 抓取观察 auralisy_db_lock_contention_total 的
+delivery 与 usage-receipt 阶段，结合连接超时和锁等待日志判断连接压力。

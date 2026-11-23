@@ -3,7 +3,8 @@
 import asyncio
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from contextvars import copy_context
+from dataclasses import dataclass, field
 from functools import partial
 from time import monotonic
 
@@ -23,6 +24,7 @@ class Job:
     tokens: int = 0
     quota_record: list | None = None
     quota_group: str = "default"
+    context: object = field(default_factory=copy_context)
 
 
 class ServiceResources:
@@ -183,7 +185,7 @@ class ServiceResources:
             self.counts[job.resource] += 1
             if job.host:
                 self.hosts[job.host] = self.hosts.get(job.host, 0) + 1
-            task = asyncio.create_task(self._execute(job))
+            task = job.context.run(asyncio.create_task, self._execute(job))
             self.running[task] = job
             task.add_done_callback(lambda t, j=job: self._finished(t, j))
         expiries = [

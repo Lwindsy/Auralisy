@@ -12,9 +12,16 @@ from uuid import uuid4
 
 import httpx
 from aiohttp import web
+from auralisy_intelligence import telemetry
 from auralisy_intelligence.contracts import ContractError, envelope, validate_message
 
-from .ports import CallDenied, ControlPort, ControlUnavailable
+from .ports import (
+    CallDenied,
+    ControlPort,
+    ControlUnavailable,
+    RetryableDeliveryUnavailable,
+    RetryableUsageUnavailable,
+)
 from .runtime import RoundSupervisor
 
 CONTROL_ROUTES = {
@@ -112,9 +119,11 @@ class ControlHTTPClient:
         path = "internal/v1" + path.format(**identifiers)
         request_id = uuid4().hex
         message = envelope(request_type, payload, request_id) if request_type else None
+        trace_headers = {}
+        telemetry.propagator.inject(trace_headers)
         try:
             response = await self.client.request(
-                method, path, json=message if request_type else None
+                method, path, json=message if request_type else None, headers=trace_headers
             )
         except httpx.HTTPError as error:
             raise ControlUnavailable("CONTROL_UNAVAILABLE") from error
@@ -124,6 +133,17 @@ class ControlHTTPClient:
         except (ValueError, TypeError, KeyError) as error:
             raise ControlUnavailable("CONTROL_INVALID_RESPONSE") from error
         if response.status_code >= 500:
+            if (
+                operation in {"delivery", "usage-receipt"}
+                and response.status_code == 503
+                and decoded["request_id"] == request_id
+                and decoded["message_type"] == "Error"
+                and decoded["payload"]["code"] == "DEPENDENCY_UNAVAILABLE"
+                and decoded["payload"]["retry_disposition"] == "READ_STATUS_OR_SAFE_RETRY"
+            ):
+                if operation == "delivery":
+                    raise RetryableDeliveryUnavailable("CONTROL_UNAVAILABLE")
+                raise RetryableUsageUnavailable("CONTROL_UNAVAILABLE")
             raise ControlUnavailable("CONTROL_UNAVAILABLE")
         if request_type and decoded["request_id"] != request_id:
             raise ControlUnavailable("CONTROL_RESPONSE_MISMATCH")
@@ -236,7 +256,14 @@ def create_execution_app(
             raise ContractError("SUBJECT_REVOKED")
         if prepare:
             prepare(payload)
-        status, execution = await supervisor.accept(payload, factory(payload), control)
+        with telemetry.tracer.start_as_current_span(
+            "python.accept",
+            context=telemetry.propagator.extract(request.headers),
+            kind=telemetry.trace.SpanKind.SERVER,
+            record_exception=False,
+            set_status_on_exception=False,
+        ):
+            status, execution = await supervisor.accept(payload, factory(payload), control)
         return response("ExecutionView", execution.view(), request, status)
 
     async def view(request):

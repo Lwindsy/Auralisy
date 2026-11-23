@@ -1,0 +1,36 @@
+// Set values from the Grafana Cloud stack connection page.
+prometheus.scrape "java" {
+  targets = [{"__address__" = sys.env("AURALIS_METRICS_TARGET")}]
+  metrics_path = "/actuator/prometheus"
+  authorization {
+    credentials_file = sys.env("AURALIS_SERVICE_TOKEN_FILE")
+  }
+  http_headers = {"X-Auralis-Audience" = ["coordinator"]}
+  forward_to = [prometheus.remote_write.cloud.receiver]
+}
+prometheus.remote_write "cloud" {
+  endpoint {
+    url = sys.env("GRAFANA_PROMETHEUS_URL")
+    basic_auth {
+      username = sys.env("GRAFANA_PROMETHEUS_USER")
+      password = sys.env("GRAFANA_CLOUD_TOKEN")
+    }
+  }
+}
+otelcol.receiver.otlp "app" {
+  http { endpoint = "127.0.0.1:4318" }
+  output {
+    traces = [otelcol.exporter.otlphttp.cloud.input]
+    metrics = [otelcol.exporter.otlphttp.cloud.input]
+  }
+}
+otelcol.auth.basic "cloud" {
+  username = sys.env("GRAFANA_OTLP_USER")
+  password = sys.env("GRAFANA_CLOUD_TOKEN")
+}
+otelcol.exporter.otlphttp "cloud" {
+  client {
+    endpoint = sys.env("GRAFANA_OTLP_ENDPOINT")
+    auth = otelcol.auth.basic.cloud.handler
+  }
+}

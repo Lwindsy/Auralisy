@@ -1,0 +1,21 @@
+groups:
+  - name: auralisy
+    rules:
+      - alert: RecommendationFailures
+        expr: sum(increase(auralisy_executions_total{outcome=~"FAILED|EXPIRED|INTERRUPTED"}[10m])) / clamp_min(sum(increase(auralisy_executions_total[10m])), 1) > 0.2 and sum(increase(auralisy_executions_total[10m])) >= 5
+        for: 2m
+        labels: {severity: warning}
+        annotations:
+          summary: 推荐执行失败比例超过 20%
+      - alert: RecommendationSlow
+        expr: histogram_quantile(0.95, sum by (le) (rate(auralisy_execution_duration_seconds_bucket[10m]))) > 120
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: 推荐执行耗时 P95 超过 120 秒
+      - alert: RecommendationCost
+        expr: sum(increase(auralisy_cost_usd_total[1h])) > 5
+        for: 2m
+        labels: {severity: warning}
+        annotations:
+          summary: 一小时新增已结算费用超过 5 美元

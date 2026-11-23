@@ -35,25 +35,22 @@ class OnlinePostgresTest {
     static void database() throws Exception {
         url = System.getenv("AURALIS_TEST_POSTGRES_URL");
         assertTrue(url.matches("jdbc:postgresql://127\\.0\\.0\\.1:[0-9]+/auralis_core_verify"));
+        String admin = System.getenv("AURALIS_TEST_POSTGRES_ADMIN_PASSWORD");
+        try (var c = DriverManager.getConnection(url, "postgres", admin);
+                var s = c.createStatement()) {
+            s.execute(
+                    "DO $$ BEGIN CREATE ROLE auralis_online LOGIN PASSWORD 'be004-synthetic-runtime'; EXCEPTION WHEN duplicate_object THEN NULL; END $$");
+        }
+        Flyway.configure()
+                .dataSource(url, "postgres", admin)
+                .locations("classpath:db/migration")
+                .load()
+                .migrate();
         try (var c =
                         DriverManager.getConnection(
                                 url,
                                 "postgres",
                                 System.getenv("AURALIS_TEST_POSTGRES_ADMIN_PASSWORD"));
-                var s = c.createStatement()) {
-            s.execute(
-                    "DO $$ BEGIN CREATE ROLE be004_migrator LOGIN PASSWORD 'be004-synthetic-runtime'; EXCEPTION WHEN duplicate_object THEN NULL; END $$");
-            s.execute(
-                    "DO $$ BEGIN CREATE ROLE auralis_online LOGIN PASSWORD 'be004-synthetic-runtime'; EXCEPTION WHEN duplicate_object THEN NULL; END $$");
-            s.execute("GRANT CREATE ON DATABASE auralis_core_verify TO be004_migrator");
-            s.execute("GRANT USAGE, CREATE ON SCHEMA public TO be004_migrator");
-        }
-        Flyway.configure()
-                .dataSource(url, "be004_migrator", PASSWORD)
-                .locations("classpath:db/migration")
-                .load()
-                .migrate();
-        try (var c = DriverManager.getConnection(url, "be004_migrator", PASSWORD);
                 var s = c.createStatement()) {
             s.execute(
                     "CREATE TABLE IF NOT EXISTS public.bootstrap_probe (id bigint primary key, value varchar(255))");
@@ -86,6 +83,35 @@ class OnlinePostgresTest {
         application.setDefaultProperties(properties);
         // Command-line values take precedence over packaged defaults such as server.port.
         return (ServletWebServerApplicationContext) application.run("--server.port=0");
+    }
+
+    @Test
+    void prometheusRequiresCoordinatorTokenAndRejectsBrowserOrigin() throws Exception {
+        try (var context = start(Map.of());
+                var client = HttpClient.newHttpClient()) {
+            var uri =
+                    URI.create(
+                            "http://127.0.0.1:"
+                                    + context.getWebServer().getPort()
+                                    + "/actuator/prometheus");
+            assertEquals(401, get(client, uri.toString()).statusCode());
+            var request =
+                    HttpRequest.newBuilder(uri)
+                            .header("Authorization", "Bearer " + OnlineBootstrapTest.TOKEN);
+            assertEquals(
+                    403,
+                    client.send(request.build(), HttpResponse.BodyHandlers.ofString())
+                            .statusCode());
+            request.header("X-Auralis-Audience", "coordinator");
+            var authorized = client.send(request.build(), HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, authorized.statusCode());
+            assertTrue(authorized.body().contains("jvm_"));
+            request.header("Origin", "http://127.0.0.1:8080");
+            assertEquals(
+                    403,
+                    client.send(request.build(), HttpResponse.BodyHandlers.ofString())
+                            .statusCode());
+        }
     }
 
     @Test
@@ -182,7 +208,11 @@ class OnlinePostgresTest {
                         fail();
                     }
                 });
-        try (var c = DriverManager.getConnection(url, "be004_migrator", PASSWORD);
+        try (var c =
+                        DriverManager.getConnection(
+                                url,
+                                "postgres",
+                                System.getenv("AURALIS_TEST_POSTGRES_ADMIN_PASSWORD"));
                 var s = c.createStatement()) {
             var result =
                     s.executeQuery("SELECT checksum FROM flyway_schema_history WHERE version='6'");

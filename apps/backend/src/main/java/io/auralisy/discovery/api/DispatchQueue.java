@@ -97,6 +97,10 @@ public interface DispatchQueue {
 
     void unavailable(String coordinatorBoot);
 
+    default void unavailable(String coordinatorBoot, RuntimeException failure) {
+        unavailable(coordinatorBoot);
+    }
+
     List<Job> active();
 
     boolean ready(String coordinatorBoot);

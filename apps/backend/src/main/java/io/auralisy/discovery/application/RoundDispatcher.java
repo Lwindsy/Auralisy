@@ -1,9 +1,11 @@
 package io.auralisy.discovery.application;
 
 import static io.auralisy.contracts.CanonicalJson.JSON;
+import static io.auralisy.persistence.DbDiagnostics.Phase.*;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import io.auralisy.discovery.api.*;
+import io.auralisy.persistence.DbDiagnostics;
 import io.auralisy.persistence.ShortTransactions;
 import java.time.Clock;
 import java.time.Instant;
@@ -17,18 +19,21 @@ public final class RoundDispatcher {
     private final DispatchQueue.Limits limits;
     private final String boot;
     private final Clock clock;
+    private final DbDiagnostics diagnostics;
 
     public RoundDispatcher(
             DispatchQueue queue,
             PythonClient python,
             DispatchQueue.Limits limits,
             String boot,
-            Clock clock) {
+            Clock clock,
+            DbDiagnostics diagnostics) {
         this.queue = queue;
         this.python = python;
         this.limits = limits;
         this.boot = boot;
         this.clock = clock;
+        this.diagnostics = diagnostics;
         queue.beginRecovery(boot);
     }
 
@@ -43,12 +48,18 @@ public final class RoundDispatcher {
     public synchronized void tick() {
         ShortTransactions.outsideTransaction(
                 () -> {
+                    var phase = RUNTIME;
+                    String execution = null;
                     try {
                         String runtime = python.runtime();
                         if (json(runtime).path("execution_capacity").asInt() != limits.executions())
                             throw new PythonClient.Unavailable();
+                        phase = RECONCILE;
                         queue.reconcile(boot, runtime);
+                        phase = OBSERVE;
                         for (var job : queue.active()) {
+                            execution = job.execution();
+                            phase = OBSERVE;
                             try {
                                 if (!job.coordinatorBoot().equals(boot))
                                     queue.stop(boot, job, "INTERRUPTED");
@@ -61,10 +72,12 @@ public final class RoundDispatcher {
                                     continue;
                                 }
                                 if (job.attempts() == 0) {
+                                    phase = SEND;
                                     send(job);
                                     continue;
                                 }
                                 JsonNode p = json(job.payload());
+                                phase = ADMISSION;
                                 var admission =
                                         json(
                                                 python.admission(
@@ -78,6 +91,7 @@ public final class RoundDispatcher {
                                         || !p.path("payload_digest")
                                                 .equals(admission.path("payload_digest")))
                                     throw new PythonClient.Unavailable();
+                                phase = OBSERVE;
                                 switch (admission.path("status").asText()) {
                                     case "ACTIVE", "TERMINAL" -> {
                                         if (admission.path("execution").isNull())
@@ -114,7 +128,10 @@ public final class RoundDispatcher {
                                                         .equals("CLEARED")
                                                 || job.attempts() >= 2)
                                             queue.release(boot, job, "INTERRUPTED");
-                                        else send(job);
+                                        else {
+                                            phase = SEND;
+                                            send(job);
+                                        }
                                     }
                                     case "UNKNOWN" -> {
                                         /* Keep the physical slot; absence is not retry permission. */
@@ -132,10 +149,14 @@ public final class RoundDispatcher {
                                 }
                             } catch (RuntimeException failure) {
                                 if (!ShortTransactions.isLockContention(failure)) throw failure;
+                                diagnostics.skipped(phase, failure, execution);
                             }
                         }
+                        phase = COMMAND;
+                        execution = null;
                         if (queue.ready(boot))
                             for (var command : queue.commands()) {
+                                execution = command.execution();
                                 try {
                                     var accepted =
                                             json(
@@ -148,21 +169,42 @@ public final class RoundDispatcher {
                                     queue.acknowledge(boot, command);
                                 } catch (RuntimeException failure) {
                                     if (!ShortTransactions.isLockContention(failure)) throw failure;
+                                    diagnostics.skipped(phase, failure, execution);
                                 }
                             }
+                        phase = CLAIM;
+                        execution = null;
                         if (queue.ready(boot)) {
                             var next = queue.claim(boot, limits);
-                            if (next != null) send(next);
+                            if (next != null) {
+                                phase = SEND;
+                                execution = next.execution();
+                                send(next);
+                            }
                         }
                     } catch (RuntimeException failure) {
                         // PostgreSQL lock contention is local, not evidence of a lost Python
                         // runtime. The transaction rolled back; retain slots and retry observation
                         // on the next tick without disabling in-flight callbacks.
-                        if (ShortTransactions.isLockContention(failure)) return null;
-                        LOG.warn("AURALIS_DISPATCH_FAILED {}", failure.getClass().getSimpleName());
+                        if (ShortTransactions.isLockContention(failure)) {
+                            diagnostics.skipped(phase, failure, execution);
+                            return null;
+                        }
+                        if (DbDiagnostics.isDatabaseFailure(failure))
+                            diagnostics.failed(phase, failure, execution);
+                        LOG.warn(
+                                "AURALIS_DISPATCH_FAILED {} sqlstate={}",
+                                failure.getClass().getSimpleName(),
+                                DbDiagnostics.sqlStates(failure));
                         // A failed observation cannot authorize another execution or reset a paid
                         // attempt.
-                        queue.unavailable(boot);
+                        try {
+                            queue.unavailable(boot, failure);
+                        } catch (RuntimeException unavailable) {
+                            diagnostics.failed(UNAVAILABLE, unavailable, null);
+                            failure.addSuppressed(unavailable);
+                            throw failure;
+                        }
                     }
                     return null;
                 });
