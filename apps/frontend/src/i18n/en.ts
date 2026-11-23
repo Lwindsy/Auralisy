@@ -200,6 +200,28 @@ const en: Copy = {
     scrub: "Drag or use the arrow keys to move through the text",
   },
   cover: { alt: (title: string) => `${title} cover` },
+  wallpaper: {
+    title: "Auralisy Desktop",
+    hint: "Pick a few genres you love, or mark the ones to avoid. Each morning your desktop shows a new album.",
+    today: "Today's record",
+    day: (month: number, date: number, weekday: number) =>
+      `${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][weekday]} ${["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][month - 1]} ${date}`,
+    position: (index: number, total: number) =>
+      `${String(index).padStart(2, "0")} / ${String(total).padStart(2, "0")}`,
+    nextDay: (hour: number) => `Next record tomorrow at ${hour}:00`,
+    finished: "That's the whole set",
+    more: "Another set",
+    rethink: "Change genres",
+    heard: "Heard it",
+    undo: "Undo",
+    like: "Love it",
+    controls: "Wallpaper controls",
+    noCards: "Couldn't find a good match this time",
+    offline: "Can't reach the Auralisy service on this computer. Retrying…",
+    paid: "Uses your API key to make new picks",
+    restart: "Start over with the same genres",
+    restartNote: "Opens a new session with its own budget",
+  },
   wave: {
     tags: "Catalog genre tags",
     fallback: "A genre the music catalog tagged this album with. Just a hint.",
