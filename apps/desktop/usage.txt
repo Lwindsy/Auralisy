@@ -64,10 +64,10 @@ Each round initially assigns 60% to foreground and 40% to background. A round al
 US$1. The application reserves model costs at the configured rates before sending
 and settles actual usage. It has no installation-wide or provider account limit.
 Different monitors and sessions each use a separate session budget. Monitor your
-account's usage. The default model is the standard GPT-5.4 mini snapshot,
-gpt-5.4-mini-2026-03-17, with one concurrent recommendation execution. See
-https://developers.openai.com/api/docs/models/gpt-5.4-mini and
-https://developers.openai.com/api/docs/pricing for the configured rate sources.
+account's usage. The default model is gpt-6.1-terra on the standard tier, with one
+concurrent recommendation execution, at the configured rates of US$1.00 input,
+US$0.05 cached input and US$5.00 output per million tokens plus US$0.01 per search.
+See https://developers.openai.com/api/docs/pricing for the rate source.
 
 The four container memory ceilings are 1 GiB PostgreSQL, 2 GiB Java, 3 GiB Python,
 and 128 MiB Caddy, totaling 6.125 GiB. Docker Desktop itself uses additional memory.
@@ -135,9 +135,9 @@ ZIP 收录七张活动目录表的所需列、专辑汇总听众数、Lucene 索
 每轮最多 40 次模型、12 次搜索、60 次读取。首次启动用 --session-microusd 和
 --round-microusd 调整，1,000,000 微美元等于 1 美元。应用按配置费率在发送前预留，
 再按实际用量结算。各显示器和各新会话分别计算额度，应用没有整套安装或供应商账号级限额。
-请查看自己账号的用量。默认模型为标准档 GPT-5.4 mini 快照 gpt-5.4-mini-2026-03-17，
-同时运行一轮推荐。费率依据见 https://developers.openai.com/api/docs/models/gpt-5.4-mini
-和 https://developers.openai.com/api/docs/pricing 。
+请查看自己账号的用量。默认模型为标准档 gpt-6.1-terra，同时运行一轮推荐；配置费率为每百万
+token 输入 1.00 美元、缓存输入 0.05 美元、输出 5.00 美元，每次搜索 0.01 美元。费率依据见
+https://developers.openai.com/api/docs/pricing 。
 
 四个容器的内存上限分别为 PostgreSQL 1 GiB、Java 2 GiB、Python 3 GiB、Caddy 128 MiB，
 合计 6.125 GiB。Docker Desktop 自身还有额外占用。离线准备容器在常驻服务启动前运行。
