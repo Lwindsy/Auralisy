@@ -1,0 +1,33 @@
+rule_files: [alerts.yml]
+evaluation_interval: 1m
+tests:
+  - interval: 1m
+    input_series:
+      - series: 'auralisy_executions_total{outcome="FAILED"}'
+        values: '0+1x25'
+      - series: 'auralisy_executions_total{outcome="DISPLAYABLE"}'
+        values: '0+1x25'
+      - series: 'auralisy_execution_duration_seconds_bucket{le="120"}'
+        values: '0+0x25'
+      - series: 'auralisy_execution_duration_seconds_bucket{le="300"}'
+        values: '0+10x25'
+      - series: 'auralisy_execution_duration_seconds_bucket{le="+Inf"}'
+        values: '0+10x25'
+      - series: 'auralisy_cost_usd_total'
+        values: '0+1x25'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: RecommendationFailures
+        exp_alerts:
+          - exp_labels: {severity: warning}
+            exp_annotations: {summary: 推荐执行失败比例超过 20%}
+      - eval_time: 20m
+        alertname: RecommendationSlow
+        exp_alerts:
+          - exp_labels: {severity: warning}
+            exp_annotations: {summary: 推荐执行耗时 P95 超过 120 秒}
+      - eval_time: 20m
+        alertname: RecommendationCost
+        exp_alerts:
+          - exp_labels: {severity: warning}
+            exp_annotations: {summary: 一小时新增已结算费用超过 5 美元}

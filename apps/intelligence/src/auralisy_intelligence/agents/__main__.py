@@ -43,6 +43,9 @@ async def demo(args):
 
 
 def serve(args):
+    from auralisy_intelligence.telemetry import configure
+
+    shutdown_telemetry = configure()
     config_path = Path(args.config).resolve()
     config = json.loads(config_path.read_text(encoding="utf-8"))
     if os.environ.get("AURALIS_GENRE_REACH_INDEX"):
@@ -189,6 +192,7 @@ def serve(args):
         await adapter.close()
         if search_adapter is not adapter:
             await search_adapter.close()
+        await asyncio.to_thread(shutdown_telemetry)
 
     app.on_cleanup.append(cleanup)
     if args.managed_stdin:

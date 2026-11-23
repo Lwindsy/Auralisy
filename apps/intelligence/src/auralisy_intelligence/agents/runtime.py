@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable
 from uuid import uuid4
 
+from auralisy_intelligence import telemetry
 from auralisy_intelligence.contracts import (
     ContractError,
     IdempotencyLedger,
@@ -43,6 +44,8 @@ class Execution:
         self.control = control
         self.clock = AgentClock(monotonic)
         self.created_at = self.clock.now()
+        self.telemetry_input_tokens = 0
+        self.telemetry_output_tokens = 0
         self.final_timing: dict[str, int] | None = None
         limits = start["agent_policy"]["concurrency"]
         self._owned_resources = ServiceResources() if resources is None else None
@@ -277,6 +280,10 @@ class Execution:
         resource = "search" if plan["cost_class"] == "TOOL_SERVICE" else "model"
 
         async def perform() -> CallResult:
+            with telemetry.provider_span(self, plan, resource) as span:
+                return await perform_call(span)
+
+        async def perform_call(span) -> CallResult:
             self.ensure_active()
             try:
                 response = await self.control_request("invocation-grants", {"items": [plan]})
@@ -320,6 +327,7 @@ class Execution:
                 reply = CallResult(outcome="UNCERTAIN", finish="ERROR")
             finally:
                 call["finished_at"] = self.clock.now()
+                telemetry.record_usage(self, span, reply)
                 receipt = {
                     "invocation_id": plan["invocation_id"],
                     "receipt_id": plan["invocation_id"] + ":usage",
@@ -642,6 +650,10 @@ class RoundSupervisor:
             return 201, execution
 
     async def _drive(self, execution: Execution, stage: Stage) -> None:
+        with telemetry.execution_span(execution):
+            await self._drive_execution(execution, stage)
+
+    async def _drive_execution(self, execution: Execution, stage: Stage) -> None:
         execution.started.set()
         execution.status = "RUNNING"
         execution.event("RUNNING")

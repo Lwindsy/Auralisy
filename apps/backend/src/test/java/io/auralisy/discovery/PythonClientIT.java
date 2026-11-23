@@ -76,7 +76,11 @@ class PythonClientIT {
             var properties = new OnlineProperties();
             properties.setPythonUrl("http://127.0.0.1:" + Integer.parseInt(port));
             properties.setServiceToken(TOKEN);
-            client = new PythonHttpClient(properties, new WireProtocol(JSON));
+            client =
+                    new PythonHttpClient(
+                            properties,
+                            new WireProtocol(JSON),
+                            io.opentelemetry.api.OpenTelemetry.noop());
         }
 
         public void close() throws Exception {
@@ -190,7 +194,9 @@ class PythonClientIT {
         var props = new OnlineProperties();
         props.setPythonUrl("http://127.0.0.1:" + server.getAddress().getPort());
         props.setServiceToken(TOKEN);
-        try (var peer = new PythonHttpClient(props, new WireProtocol(JSON))) {
+        try (var peer =
+                new PythonHttpClient(
+                        props, new WireProtocol(JSON), io.opentelemetry.api.OpenTelemetry.noop())) {
             assertThrows(PythonClient.Unavailable.class, peer::runtime);
         } finally {
             server.stop(0);

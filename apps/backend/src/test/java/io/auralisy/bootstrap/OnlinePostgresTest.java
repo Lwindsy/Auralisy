@@ -89,6 +89,35 @@ class OnlinePostgresTest {
     }
 
     @Test
+    void prometheusRequiresCoordinatorTokenAndRejectsBrowserOrigin() throws Exception {
+        try (var context = start(Map.of());
+                var client = HttpClient.newHttpClient()) {
+            var uri =
+                    URI.create(
+                            "http://127.0.0.1:"
+                                    + context.getWebServer().getPort()
+                                    + "/actuator/prometheus");
+            assertEquals(401, get(client, uri.toString()).statusCode());
+            var request =
+                    HttpRequest.newBuilder(uri)
+                            .header("Authorization", "Bearer " + OnlineBootstrapTest.TOKEN);
+            assertEquals(
+                    403,
+                    client.send(request.build(), HttpResponse.BodyHandlers.ofString())
+                            .statusCode());
+            request.header("X-Auralis-Audience", "coordinator");
+            var authorized = client.send(request.build(), HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, authorized.statusCode());
+            assertTrue(authorized.body().contains("jvm_"));
+            request.header("Origin", "http://127.0.0.1:8080");
+            assertEquals(
+                    403,
+                    client.send(request.build(), HttpResponse.BodyHandlers.ofString())
+                            .statusCode());
+        }
+    }
+
+    @Test
     void startsServesRealHttpAndSharesJpaJdbcCommitAndRollback() throws Exception {
         HikariDataSource pool;
         try (var context = start(Map.of());

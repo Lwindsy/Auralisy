@@ -114,3 +114,8 @@ V19按主体与资源拆锁：
 传播度索引（产品0.22／内部0.36）
 部署脚本在排空并停止Java／Python后运行Compose prepare-reach。它从现有agent-service.json指定的taxonomy、recall_snapshot、audience_snapshot生成独立reach卷内的genre-reach.json；准备容器无网络，原数据只读，失败不启动新服务。Java／Python只读挂载同一文件，通过AURALIS_GENRE_REACH_INDEX定位。每次部署重建，用户请求不扫描统计。索引v2按父类自身及后代的专辑去重统计，不能复用旧v1文件。目录、taxonomy、听众窗口或召回快照改变时必须配套更新。
 无DDL迁移。回退仍须排空，并恢复匹配的三端与配置；新相对传播度会话不能交旧服务继续，需重新提交旧版输入。保留既有费用和删除记录。Windows host及本地预览也在服务启动前通过相同准备器生成索引。
+
+可观测性配置
+本地 Prometheus／Grafana／Tempo 和 Cloud Alloy 配置见 observability/usage.txt。
+在 java.env 与 python.env 启用 AURALIS_TELEMETRY_ENABLED，并按手册配置各自 OTLP 地址。
+指标抓取使用内部服务认证，发布后核对 Prometheus 两个目标及 Tempo 的实际推荐链路。

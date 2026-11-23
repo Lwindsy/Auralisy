@@ -1,0 +1,89 @@
+Auralisy 本地可观测性
+
+在本分支重建 Java，并安装 apps/intelligence/pyproject.toml 中的 Python 依赖。
+Java 使用 Actuator／Micrometer Prometheus 和 OpenTelemetry，Python 使用 OpenTelemetry SDK。
+本目录 Compose 提供 Prometheus、Grafana、Tempo 和 Collector，数据保留 7 天。
+
+从工作树根启动
+
+1. 将实际 Java 的 AURALIS_SERVICE_TOKEN 写入本目录 java-service-token 文件，限制本机文件访问。
+   该文件已忽略。prometheus.yml 中的 host.docker.internal:18080 改成实际 Java 地址和端口。
+   Docker Desktop 可通过 host.docker.internal 访问宿主。
+   Linux 的 Java 绑定回环时，Prometheus 需使用宿主网络并将目标改为 127.0.0.1:18080，
+   同时把 Python 抓取目标改为 127.0.0.1:8889，并将 Grafana 的 Prometheus 数据源
+   指向 host.docker.internal:9090（Linux 需添加 host-gateway 映射）。
+2. Java 和 Python 的进程环境均设置 AURALIS_TELEMETRY_ENABLED=true。
+   本地验收同时显式设置 AURALIS_TRACE_SAMPLE_RATE=1.0。
+   Python 设置 OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318。
+   Java 设置 AURALIS_OTLP_TRACES_ENDPOINT=http://127.0.0.1:4318/v1/traces。
+   本地 host.py 启动器会传递这些配置。Compose 产品服务从现有 java.env／python.env 读取。
+3. 执行 docker compose -f apps/runtime/observability/compose.yml up -d。
+4. 按已有运行入口启动新 Java／Python。Grafana 位于 http://127.0.0.1:3000/d/auralisy，
+   Prometheus 位于 http://127.0.0.1:9090。Targets 中两个目标应为 UP。
+   Grafana 允许本机匿名只读。需要编辑时使用管理员账号并修改首次登录密码。
+5. Grafana Explore 选择 Tempo，用 { name = "recommendation.execution" } 查找执行链。
+   可用 TraceQL { span.auralisy.round.id = "实际 round_id" } 汇总同轮各次执行。
+
+采集口径
+
+Java /actuator/prometheus 要求 Bearer 服务令牌及 X-Auralis-Audience=coordinator，
+Caddy 继续阻止公网访问管理端点。HTTP、JVM、数据库连接池指标由 Actuator 采集。
+Java 派发 span 经 W3C traceparent 连接 Python 接纳、完整执行与每次模型／搜索调用，
+Python 回调的 Java 结算及交付也继承同一链路。共享排队任务保存各自上下文。
+当前链路从 Java 派发开始。HTTP 提交与持久队列等待有各自的服务指标，尚未连接到该执行 span。
+同一轮 CONTINUE 可以产生多个执行链，通过 round_id 关联。
+
+每个执行 span 记录该次执行耗时、已知输入／输出 token、未知调用数量，
+以及 Java 最新返回的整轮已结算／预留费用。缓存输入 token 是输入 token 的子集。
+未知用量保留未知，预留金额来自账本。整轮费用快照不能跨执行相加。
+Python tokens 计数覆盖每个实际返回用量的调用，包括搜索；取消后未取得用量的调用计为未知。
+Java auralisy_cost_usd_total 只在首次有效结算的事务提交后增加，回执重放和回滚不增加。
+它用于运行监控，进程退出与抓取之间的增量可能未被采集，持久财务账本仍用于准确对账。
+
+指标标签只使用有限的结果、调用类型、用途及车道。round_id、execution_id、invocation_id
+只进入追踪属性。不会把提示、模型输出、网页正文、原始偏好或凭据加入这些自定义属性。
+导出默认关闭，根追踪采样率默认 0.0。AURALIS_TRACE_SAMPLE_RATE 独立控制根采样，
+Python 接到上游 traceparent 时继承其采样决定。
+
+告警与面板
+
+alerts.yml 定义三个初始运维阈值，可按实测修改。
+- 10 分钟内至少 5 次执行且失败比例超过 20%，持续 2 分钟。
+- 10 分钟窗口执行耗时 P95 超过 120 秒，持续 5 分钟。
+- 1 小时新增已结算费用超过 US$5，持续 2 分钟。
+这些阈值用于提示运维，产品预算与技术截止继续使用既有配置。
+Prometheus 执行规则并在 Alerts 页展示，Grafana 面板显示 firing 状态。
+通知接收人和外部通知渠道尚未配置。
+
+验证命令
+
+docker compose -f apps/runtime/observability/compose.yml config --quiet
+docker compose -f apps/runtime/observability/compose.yml exec -T prometheus promtool check rules /etc/prometheus/alerts.yml
+
+alerts.test.yml 可通过 promtool test rules 验证三条告警的触发条件。
+Python test_telemetry.py 验证 W3C 父子关系及并发排队后链路隔离。
+Java BudgetAuthorityIT 验证未知转已知、重复回执仅结算及计入指标一次。
+
+Grafana Cloud
+
+cloud.alloy 面向 Grafana Alloy v1.11.3，作为本地 Collector 的替代接入配置。
+从 Stack 页面取得 GRAFANA_PROMETHEUS_URL、GRAFANA_PROMETHEUS_USER、
+GRAFANA_OTLP_ENDPOINT、GRAFANA_OTLP_USER 和 GRAFANA_CLOUD_TOKEN，存入受限环境文件。
+AURALIS_METRICS_TARGET 为 Java 内网地址，AURALIS_SERVICE_TOKEN_FILE 为令牌文件绝对路径。
+Alloy 与应用同机运行，接收 127.0.0.1:4318。停用原 Collector 后再绑定该端口。
+执行 alloy validate cloud.alloy，然后 alloy run cloud.alloy。
+在 Cloud 中导入 dashboard.json，并将数据源 UID 对应到已有 Prometheus／Tempo。
+把 alerts.yml 的三个表达式和持续时间配置为 Cloud 告警，再选择实际通知接收渠道。
+本轮按用户选择完成本地接入并准备 Cloud 配置，尚未向 Cloud 发送数据。
+
+部署与关闭
+
+生产发布仍按 ../deployment.txt 的排空、备份、双端更新及健康验证步骤执行。
+生产当前未启用遥测。启用属于另行批准的运维变更。
+关闭导出可将 AURALIS_TELEMETRY_ENABLED=false 后重启双端。
+docker compose -f apps/runtime/observability/compose.yml down 停止监控容器并保留数据卷。
+
+参考
+https://docs.spring.io/spring-boot/3.5/reference/actuator/tracing.html
+https://opentelemetry.io/docs/languages/python/propagation/
+https://grafana.com/docs/alloy/latest/reference/components/prometheus/prometheus.scrape/

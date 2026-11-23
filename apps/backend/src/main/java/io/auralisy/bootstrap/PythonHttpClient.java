@@ -19,6 +19,7 @@ import org.springframework.stereotype.Component;
 @Component
 public final class PythonHttpClient implements PythonClient, AutoCloseable {
     private final OnlineProperties properties;
+    private final io.opentelemetry.api.OpenTelemetry telemetry;
     private final WireProtocol wire;
     private final Semaphore requests = new Semaphore(3);
     private final HttpClient client =
@@ -27,9 +28,13 @@ public final class PythonHttpClient implements PythonClient, AutoCloseable {
                     .followRedirects(HttpClient.Redirect.NEVER)
                     .build();
 
-    public PythonHttpClient(OnlineProperties properties, WireProtocol wire) {
+    public PythonHttpClient(
+            OnlineProperties properties,
+            WireProtocol wire,
+            io.opentelemetry.api.OpenTelemetry telemetry) {
         this.properties = properties;
         this.wire = wire;
+        this.telemetry = telemetry;
     }
 
     private static String encode(String text) {
@@ -77,7 +82,13 @@ public final class PythonHttpClient implements PythonClient, AutoCloseable {
                 () -> {
                     if (!requests.tryAcquire()) throw new Unavailable();
                     CompletableFuture<HttpResponse<byte[]>> pending = null;
-                    try {
+                    var span =
+                            telemetry
+                                    .getTracer("auralisy.dispatch")
+                                    .spanBuilder(kind == null ? "python.control" : "python." + kind)
+                                    .setSpanKind(io.opentelemetry.api.trace.SpanKind.CLIENT)
+                                    .startSpan();
+                    try (var scope = span.makeCurrent()) {
                         String requestId = UUID.randomUUID().toString();
                         var request =
                                 HttpRequest.newBuilder(
@@ -90,9 +101,18 @@ public final class PythonHttpClient implements PythonClient, AutoCloseable {
                                                 "Authorization",
                                                 "Bearer " + properties.getServiceToken())
                                         .header("X-Auralis-Audience", "intelligence");
+                        telemetry
+                                .getPropagators()
+                                .getTextMapPropagator()
+                                .inject(
+                                        io.opentelemetry.context.Context.current(),
+                                        request,
+                                        (carrier, key, value) -> carrier.header(key, value));
                         if (payload == null) request.GET();
                         else {
                             JsonNode p = JSON.readTree(payload);
+                            if (p.has("round_id"))
+                                span.setAttribute("auralisy.round.id", p.path("round_id").asText());
                             var envelope =
                                     JSON.createObjectNode()
                                             .put("schema_version", "intel.v1")
@@ -100,8 +120,8 @@ public final class PythonHttpClient implements PythonClient, AutoCloseable {
                                             .put("request_id", requestId)
                                             .put("message_type", kind);
                             envelope.putObject("trace_context")
-                                    .put("trace_id", requestId)
-                                    .put("span_id", requestId.substring(0, 16));
+                                    .put("trace_id", span.getSpanContext().getTraceId())
+                                    .put("span_id", span.getSpanContext().getSpanId());
                             envelope.set("payload", p);
                             if (!wire.valid(envelope)) throw new Unavailable();
                             request.header("Content-Type", "application/json")
@@ -125,10 +145,12 @@ public final class PythonHttpClient implements PythonClient, AutoCloseable {
                         Thread.currentThread().interrupt();
                         throw new Unavailable();
                     } catch (Exception e) {
+                        span.setStatus(io.opentelemetry.api.trace.StatusCode.ERROR);
                         throw new Unavailable();
                     } finally {
                         if (pending != null && !pending.isDone()) pending.cancel(true);
                         requests.release();
+                        span.end();
                     }
                 });
     }

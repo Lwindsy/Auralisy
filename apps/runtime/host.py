@@ -18,7 +18,19 @@ from pathlib import Path
 
 IMAGE = "postgres:18.6-bookworm"
 FLAGS = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
-BASE_ENV = ("PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "USERPROFILE", "COMSPEC")
+BASE_ENV = (
+    "PATH",
+    "SYSTEMROOT",
+    "WINDIR",
+    "TEMP",
+    "TMP",
+    "USERPROFILE",
+    "COMSPEC",
+    "AURALIS_TELEMETRY_ENABLED",
+    "AURALIS_OTLP_TRACES_ENDPOINT",
+    "AURALIS_TRACE_SAMPLE_RATE",
+    "OTEL_EXPORTER_OTLP_ENDPOINT",
+)
 PROVIDER_KEYS = {
     "openai": "AURALIS_PRODUCT_TEST_API_KEY",
     "deepseek": "AURALIS_DEEPSEEK_API_KEY",

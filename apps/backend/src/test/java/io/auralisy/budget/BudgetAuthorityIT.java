@@ -734,6 +734,10 @@ class BudgetAuthorityIT {
                         .asText());
         assertTrue(state(c).path("input_tokens").isNull());
         var done = receipt(p, "done", "COMPLETED");
+        var counter =
+                app.getBean(io.micrometer.core.instrument.MeterRegistry.class)
+                        .counter("auralisy.cost.usd", "kind", "MODEL");
+        double before = counter.count();
         String once = budget.settle(c.evidence().execution(), done.toString());
         assertEquals(
                 JSON.readTree(once),
@@ -741,6 +745,7 @@ class BudgetAuthorityIT {
         var lane = state(c).path("lanes").path("FOREGROUND");
         assertEquals(0, lane.path("reserved_microusd").asLong());
         assertEquals(9, lane.path("settled_microusd").asLong());
+        assertEquals(0.000009, counter.count() - before, 1e-12);
         done.put("output_tokens", 4);
         assertThrows(
                 PersistenceRejected.class,

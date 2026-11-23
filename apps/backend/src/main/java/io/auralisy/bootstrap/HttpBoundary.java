@@ -51,7 +51,7 @@ public final class HttpBoundary extends OncePerRequestFilter {
             errors.write(request, response, 400, "INVALID_PAYLOAD");
             return;
         }
-        if (path.startsWith("/internal/")) {
+        if (path.startsWith("/internal/") || path.equals("/actuator/prometheus")) {
             String supplied = request.getHeader("Authorization");
             String expected = "Bearer " + properties.getServiceToken();
             if (supplied == null
