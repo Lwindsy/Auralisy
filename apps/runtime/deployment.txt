@@ -55,7 +55,10 @@ Cloudflare 前端与同源 API
   的恢复后再恢复边缘路由。旧版本回退仍按下文的镜像、工件和数据库兼容条件执行。
 
 CI/CD：.github/workflows/ci.yml
-只改根目录的README.md、README_ZH.md时，main推送和目标为main的PR跳过工作流。
+只改根目录的README.md、README_ZH.md，或只改桌面壁纸路径时，main推送和目标为main的PR
+跳过工作流。桌面壁纸路径为apps/desktop/、apps/wallpaper-engine/、壁纸页
+apps/frontend/wallpaper.html、apps/frontend/src/wallpaper/、wallpaper.css及两份壁纸测试；
+它们在访客本机运行，不部署到服务器。共享前端组件、词条和构建配置仍触发完整检查。
 含其他文件的PR运行检查；main推送或在main手动执行通过检查后自动部署。
 检查包含Python Ruff、Pytest、Java Spotless及构建、前端类型/格式检查、单元测试及构建。
 独立PostgreSQL另运行执行状态轮询的锁竞争回归，防止短暂行锁导致推荐中断。
