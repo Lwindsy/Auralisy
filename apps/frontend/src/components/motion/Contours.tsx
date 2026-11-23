@@ -78,6 +78,17 @@ export function setFlow(level: number) {
   field.target = level;
 }
 
+/** Highest frame rate the map is redrawn at; 0 keeps the display's own rate. */
+let frameCap = 0;
+
+/**
+ * Caps how often the map is redrawn. A desktop wallpaper runs all day behind other
+ * windows, so it asks for a low rate; the website leaves this at 0.
+ */
+export function setFrameCap(fps: number) {
+  frameCap = Number.isFinite(fps) && fps > 0 ? fps : 0;
+}
+
 const LEVELS = 16;
 const CELL = 26;
 
@@ -887,8 +898,12 @@ export function Contours() {
     let cost = 0;
     let drawnAt = performance.now();
     let gustAt = performance.now() + between(4000, 9000);
+    let gateAt = 0;
     const loop = (now: number) => {
       frame = requestAnimationFrame(loop);
+      // A capped rate skips whole frames; the clock below still advances by real time.
+      if (frameCap > 0 && now - gateAt < 1000 / frameCap - 1) return;
+      gateAt = now;
       const dt = Math.min(0.1, (now - last) / 1000);
       last = now;
       field.flow += (field.target - field.flow) * (1 - Math.exp(-dt * 1.2));
