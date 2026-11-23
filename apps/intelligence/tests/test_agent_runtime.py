@@ -22,7 +22,6 @@ from auralisy_intelligence.agents.pipeline import FirstBatchPipeline
 from auralisy_intelligence.agents.ports import (
     DeliveryPending,
     RetryableDeliveryUnavailable,
-    RetryableUsageUnavailable,
 )
 from auralisy_intelligence.agents.resources import ServiceResources
 from auralisy_intelligence.agents.runtime import Execution
@@ -149,11 +148,16 @@ def supply():
         (ControlUnavailable("CONTROL_UNAVAILABLE"), "OTHER", False),
         (ControlUnavailable("CONTROL_RESPONSE_MISMATCH"), "OTHER", False),
         (ContractError("IDEMPOTENCY_CONFLICT"), "OTHER", False),
-        (RetryableUsageUnavailable("CONTROL_UNAVAILABLE"), "LOCK_CONTENTION", True),
+        ("LOCK_CONTENTION", "LOCK_CONTENTION", True),
         (asyncio.TimeoutError(), "RECEIPT_TIMEOUT", True),
     ],
 )
 def test_publication_waits_for_usage_ack_without_rebuying_model(failure, reason, eligible):
+    from auralisy_intelligence.agents.ports import RetryableUsageUnavailable
+
+    if failure == "LOCK_CONTENTION":
+        failure = RetryableUsageUnavailable("CONTROL_UNAVAILABLE")
+
     async def run():
         request = start()
         supervisor, control = setup(request)
@@ -457,12 +461,16 @@ def test_delivery_response_loss_reuses_id_and_original_payload():
 @pytest.mark.parametrize(
     ("operation", "status", "disposition", "matching_id", "expected"),
     [
-        ("delivery", 503, "READ_STATUS_OR_SAFE_RETRY", True, RetryableDeliveryUnavailable),
-        ("delivery", 503, "STOP", True, ControlUnavailable),
-        ("delivery", 500, "READ_STATUS_OR_SAFE_RETRY", True, ControlUnavailable),
-        ("delivery", 503, "READ_STATUS_OR_SAFE_RETRY", False, ControlUnavailable),
-        ("invocation-grants", 503, "READ_STATUS_OR_SAFE_RETRY", True, ControlUnavailable),
-        ("delivery", 410, "STOP", True, ContractError),
+        ("delivery", 503, "READ_STATUS_OR_SAFE_RETRY", True, "RetryableDeliveryUnavailable"),
+        ("delivery", 503, "STOP", True, "ControlUnavailable"),
+        ("delivery", 500, "READ_STATUS_OR_SAFE_RETRY", True, "ControlUnavailable"),
+        ("delivery", 503, "READ_STATUS_OR_SAFE_RETRY", False, "ControlUnavailable"),
+        ("invocation-grants", 503, "READ_STATUS_OR_SAFE_RETRY", True, "ControlUnavailable"),
+        ("delivery", 410, "STOP", True, "ContractError"),
+        ("usage-receipt", 503, "READ_STATUS_OR_SAFE_RETRY", True, "RetryableUsageUnavailable"),
+        ("usage-receipt", 503, "READ_STATUS_OR_SAFE_RETRY", False, "ControlUnavailable"),
+        ("usage-receipt", 503, "STOP", True, "ControlUnavailable"),
+        ("usage-receipt", 500, "READ_STATUS_OR_SAFE_RETRY", True, "ControlUnavailable"),
     ],
 )
 def test_only_correlated_delivery_contention_enables_backoff(
@@ -476,6 +484,17 @@ def test_only_correlated_delivery_contention_enables_backoff(
         if operation == "delivery":
             await execution.deliver("SUPPLY_STATUS", supply())
             payload = control.deliveries[execution.id + ":1"]
+        elif operation == "usage-receipt":
+            payload = {
+                "invocation_id": execution.id + ":inv:1",
+                "receipt_id": execution.id + ":inv:1:usage",
+                "outcome": "COMPLETED",
+                "finish": "COMPLETE",
+                "input_tokens": 4,
+                "output_tokens": 6,
+                "cached_input_tokens": 0,
+                "provider_request_ref": None,
+            }
         else:
             payload = {"items": [execution.invocation_plan("SCREEN", "screen", {})]}
         await execution.cleanup()
@@ -498,9 +517,116 @@ def test_only_correlated_delivery_contention_enables_backoff(
             base_url="http://127.0.0.1:1", transport=httpx.MockTransport(handler)
         ) as transport:
             client.client = transport
-            with pytest.raises(expected) as captured:
+            with pytest.raises((ContractError, ControlUnavailable)) as captured:
                 await client.request("execution-1", operation, payload)
-            assert type(captured.value) is expected
+            assert type(captured.value).__name__ == expected
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    "receipt_count,fault",
+    [(1, "timeout"), (1, "503"), (2, "timeout"), (2, "503"), (2, "500")],
+)
+def test_pipeline_replays_referenced_usage(receipt_count, fault):
+    async def run():
+        request = start()
+        supervisor, control = setup(request)
+        original = control.request
+        pipeline = FirstBatchPipeline(None, None, None, None, None)
+        submit_started = False
+        sends = []
+        attempts = []
+        settled = set()
+        deliveries = []
+
+        def unavailable(request):
+            request_id = json.loads(request.content)["request_id"]
+            code = "DEPENDENCY_UNAVAILABLE"
+            return httpx.Response(
+                int(fault),
+                json=envelope(
+                    "Error",
+                    {
+                        "code": code,
+                        "retry_disposition": "READ_STATUS_OR_SAFE_RETRY",
+                        "reason": code,
+                    },
+                    request_id,
+                ),
+            )
+
+        http = ControlHTTPClient("http://127.0.0.1:1", "synthetic")
+        await http.close()
+        async with httpx.AsyncClient(
+            base_url="http://127.0.0.1:1", transport=httpx.MockTransport(unavailable)
+        ) as transport:
+            http.client = transport
+
+            async def settlement(execution_id, operation, payload):
+                if operation == "usage-receipt":
+                    if not submit_started:
+                        raise ControlUnavailable("FIXTURE_DEFERRED_USAGE")
+                    attempts.append(deepcopy(payload))
+                    if len(attempts) <= 3:
+                        if fault == "timeout":
+                            raise asyncio.TimeoutError
+                        return await http.request(execution_id, operation, payload)
+                    assert payload["receipt_id"] not in settled
+                    reply = await original(execution_id, operation, payload)
+                    settled.add(payload["receipt_id"])
+                    return reply
+                if operation == "delivery" and payload["kind"] == "LONG_REVIEW":
+                    assert len(settled) == receipt_count
+                    deliveries.append(payload["delivery_id"])
+                return await original(execution_id, operation, payload)
+
+            control.request = settlement
+
+            async def stage(execution):
+                nonlocal submit_started
+                await bind(execution, control)
+                identifiers = []
+                for index in range(receipt_count):
+                    plan = execution.invocation_plan("SCREEN", "screen", {"fixture": index})
+
+                    async def send():
+                        sends.append(plan["invocation_id"])
+                        return CallResult({}, usage=Usage(4, 6, 0))
+
+                    reply = await execution.invoke(plan, send, timeout_seconds=1)
+                    identifiers.append(reply.invocation_id)
+                assert list(execution.pending_usage) == identifiers
+                payload = {
+                    "candidate_id": "album-1",
+                    "status": "FAILED",
+                    "sections": None,
+                    "citations": [],
+                    "han_char_count": 0,
+                    "extra_read_ids": [],
+                    "missing_sections": [],
+                    "invocation_ids": identifiers,
+                    "prompt_version": "test",
+                    "reason_code": "TEST_FAILURE",
+                }
+                submit_started = True
+                try:
+                    if fault == "500":
+                        with pytest.raises(DeliveryPending):
+                            await pipeline.deliver(execution, "LONG_REVIEW", payload)
+                        assert len(attempts) == 3 and not deliveries
+                    else:
+                        await pipeline.deliver(execution, "LONG_REVIEW", payload)
+                        assert not execution.pending_usage
+                        assert len(deliveries) == 1 and len(attempts) == 3 + receipt_count
+                finally:
+                    submit_started = False
+
+            _, execution = await supervisor.accept(request, stage, control)
+            await supervisor.wait(execution.id)
+        assert execution.status == "CLOSED", execution.error_code
+        assert len(sends) == len(set(sends)) == receipt_count
+        assert len(attempts) >= 3 and all(attempt == attempts[0] for attempt in attempts[:3])
 
     asyncio.run(run())
 

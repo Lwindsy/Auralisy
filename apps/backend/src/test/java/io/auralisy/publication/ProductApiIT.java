@@ -4,6 +4,7 @@ import static io.auralisy.contracts.CanonicalJson.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.auralisy.discovery.api.DispatchQueue;
 import io.auralisy.discovery.application.Recommendations;
 import java.time.Instant;
 import java.util.*;
@@ -16,6 +17,104 @@ import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @EnabledIfEnvironmentVariable(named = "AURALIS_TEST_POSTGRES_URL", matches = ".+")
 class ProductApiIT extends ProductApiFixture {
+    @Test
+    void lockedReplayDoesNotRescheduleInitiallyUnstartedLongReview() throws Exception {
+        var probe = new SyntheticExecutionPeer.FirstBatchProbe();
+        peer.firstBatchProbe = probe;
+        peer.holdLongs = true;
+        com.fasterxml.jackson.databind.JsonNode accepted = null;
+        try {
+            var browser = browser();
+            var submission = browser.submit(userInput(""), "replay-unstarted-long-review");
+            assertEquals(202, submission.status(), submission.body().toString());
+            var delivery = probe.delivery.get(12, TimeUnit.SECONDS);
+            var card = delivery.path("payload").path("cards").get(0);
+            assertEquals("NOT_STARTED", card.path("long_review_state").asText());
+            String candidate = card.path("candidate_id").asText();
+            String session = browser.session();
+            String round = delivery.path("round_id").asText();
+            String deliveryId = delivery.path("delivery_id").asText();
+            String subject = subjects.authenticate(browser.token()).orElseThrow().subjectId();
+            // A terminal intent can retain its physical execution slot while callbacks drain.
+            var queue = app.getBean(DispatchQueue.class);
+            var execution = queue.context(deliveryId.substring(0, deliveryId.indexOf(':')));
+            queue.complete(execution.evidence().scope(), execution.budget().run(), "SUCCEEDED");
+            String regenerationSql =
+                    "SELECT id FROM discovery.discovery_intent WHERE session_id=? AND operation='RERUN' ORDER BY id";
+            assertTrue(admin.queryForList(regenerationSql, String.class, session).isEmpty());
+
+            var first = peer.deliveryResponse(delivery);
+            assertEquals(
+                    200,
+                    first.statusCode(),
+                    new String(first.body(), java.nio.charset.StandardCharsets.UTF_8));
+            accepted = JSON.readTree(first.body()).path("payload");
+            assertTrue(
+                    accepted.path("published_candidate_ids")
+                            .valueStream()
+                            .anyMatch(id -> id.asText().equals(candidate)));
+            var scheduled = admin.queryForList(regenerationSql, String.class, session);
+            assertEquals(1, scheduled.size(), scheduled.toString());
+            assertEquals(
+                    scheduled.getFirst(),
+                    admin.queryForObject(
+                            "SELECT generation_run FROM discovery.long_review WHERE round_id=? AND candidate_id=?",
+                            String.class,
+                            round,
+                            candidate));
+
+            try (var locker = Objects.requireNonNull(admin.getDataSource()).getConnection()) {
+                locker.setAutoCommit(false);
+                try (var statement =
+                        locker.prepareStatement(
+                                "SELECT id FROM discovery.subject WHERE id=? FOR UPDATE")) {
+                    statement.setString(1, subject);
+                    try (var rows = statement.executeQuery()) {
+                        assertTrue(rows.next());
+                    }
+                }
+                var contended = peer.deliveryResponse(delivery);
+                assertEquals(503, contended.statusCode());
+                assertEquals(
+                        "READ_STATUS_OR_SAFE_RETRY",
+                        JSON.readTree(contended.body())
+                                .path("payload")
+                                .path("retry_disposition")
+                                .asText());
+                locker.rollback();
+            }
+            var replay = peer.deliveryResponse(delivery);
+            assertEquals(200, replay.statusCode());
+            assertEquals(accepted, JSON.readTree(replay.body()).path("payload"));
+            assertEquals(scheduled, admin.queryForList(regenerationSql, String.class, session));
+            assertEquals(
+                    scheduled.getFirst(),
+                    admin.queryForObject(
+                            "SELECT generation_run FROM discovery.long_review WHERE round_id=? AND candidate_id=?",
+                            String.class,
+                            round,
+                            candidate));
+            assertEquals(
+                    1,
+                    admin.queryForObject(
+                            "SELECT count(*) FROM discovery.delivery_receipt WHERE id=?",
+                            Integer.class,
+                            deliveryId));
+            assertEquals(
+                    1,
+                    admin.queryForObject(
+                            "SELECT count(*) FROM discovery.card_slot WHERE session_id=? AND candidate_id=?",
+                            Integer.class,
+                            session,
+                            candidate));
+        } finally {
+            if (accepted == null) probe.result.cancel(false);
+            else probe.result.complete(accepted);
+            peer.firstBatchProbe = null;
+            peer.holdLongs = false;
+        }
+    }
+
     @Test
     @EnabledIfEnvironmentVariable(named = "AURALIS_RECALL_PYTHON", matches = ".+")
     void loadsDeepSeekRecommendationFragmentGeneratedFromSharedRoleBindings(

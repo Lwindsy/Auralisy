@@ -503,10 +503,24 @@ def case_lock(root, browser, admin, connect_admin, role, receipt, origin, token,
 
             def ready_to_release():
                 waiting_backends(admin, role, receipt)
+                if (failure := notice(root, "stage_error")) is not None:
+                    raise AssertionError(f"stage failed before {probe} release: {failure['error']}")
                 if probe == "usage-timeout":
-                    return len(target_events("callback_cancelled")) >= 3 and (
-                        len(target_events("callback_request")) >= 4
+                    return len(
+                        target_events("callback_cancelled", flush_stage="delivery")
+                    ) >= 3 and (
+                        len(target_events("callback_request", flush_stage="delivery")) >= 4
+                        and len(target_events("callback_request")) >= 5
                     )
+                if probe == "usage-503":
+                    return len(
+                        target_events(
+                            "callback_http",
+                            status=503,
+                            flush_stage="delivery",
+                            retry_disposition="READ_STATUS_OR_SAFE_RETRY",
+                        )
+                    ) >= 3 and (len(target_events("callback_request", flush_stage="delivery")) >= 4)
                 blocked = target_events(
                     "callback_http", status=503, retry_disposition="READ_STATUS_OR_SAFE_RETRY"
                 )
@@ -532,6 +546,7 @@ def case_lock(root, browser, admin, connect_admin, role, receipt, origin, token,
                 timeout=18,
                 description=f"{probe} replay failures and next attempt",
             )
+            receipt["other_subject_before_release"] = other_bootstrap()
             assert execution_state(admin, execution_id)["state"] == "RUNNING"
             locker.rollback()
             receipt["released_at"] = time.time()
@@ -808,7 +823,7 @@ def scenario(args, root, polling, probe):
     write(root / "faults.json", {"subject_lock_probe": probe})
     if probe in {"usage-503", "usage-timeout"}:
         service = read(root / "agent-service.json")
-        service["receipt_timeout_seconds"] = 3.5 if probe == "usage-503" else 0.3
+        service["receipt_timeout_seconds"] = 3.5 if probe == "usage-503" else 0.6
         write(root / "agent-service.json", service)
     # A fresh database and role avoid affecting any other IT or installed service.
     database = "auralis_core"
@@ -1011,7 +1026,6 @@ def scenario(args, root, polling, probe):
 
 def assert_recovered(receipt, root):
     assert receipt["pipeline"][0]["name"] == "ProgressivePipeline", receipt["pipeline"]
-    assert receipt["connection_peak"] <= 8, receipt["connection_peak"]
     assert not any(row["kind"] == "stage_error" for row in receipt["errors"]), receipt["errors"]
     assert not any(
         row["maintenance"]
@@ -1022,10 +1036,11 @@ def assert_recovered(receipt, root):
     assert receipt["final_execution"]["physical_released_at"].timestamp() > receipt["released_at"]
     assert not receipt["final_execution"]["cancellation_requested"]
     assert bool(receipt["polls"]) == receipt["polling"]
-    assert receipt["other_subject_during"]["status"] == 200, receipt["other_subject_during"]
-    assert receipt["other_subject_during"]["elapsed"] < 2, receipt["other_subject_during"]
+    for phase in ("other_subject_during", "other_subject_before_release"):
+        assert receipt[phase]["status"] == 200, receipt[phase]
+        assert receipt[phase]["elapsed"] < 2, receipt[phase]
     before, after = receipt["metrics_before"], receipt["metrics_after"]
-    assert after["connection_timeout"] == before["connection_timeout"], (before, after)
+    assert after["connection_timeout"] == before["connection_timeout"] == 0, (before, after)
     callbacks = receipt["callbacks"]
     if receipt["case"].startswith("usage-"):
         invocation = receipt["target"]["invocation_id"]

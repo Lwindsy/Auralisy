@@ -24,6 +24,7 @@ from auralisy_intelligence.providers.types import SearchHit
 from auralisy_intelligence.providers.web import FetchResponse
 
 fixture_invocation = ContextVar("fixture_invocation", default={})
+fixture_delivery = ContextVar("fixture_delivery", default=False)
 
 
 class Fixtures:
@@ -34,6 +35,7 @@ class Fixtures:
         self.tasks = set()
         self.long_calls = 0
         self.probe_delivery = None
+        self.usage_target = None
 
     async def signal(self, name):
         async def wait_for_signal():
@@ -76,6 +78,7 @@ class Fixtures:
             if probe in {"usage-503", "usage-timeout"}:
                 self.long_calls += 1
                 if self.long_calls == 1:
+                    self.usage_target = invocation["invocation_id"]
                     self.event("usage_waiting", **invocation)
                     await self.signal("resume-usage-provider")
                 else:
@@ -319,6 +322,18 @@ def main():
     grant_probe = lock_probe == "grant"
     first_grant = None
 
+    if lock_probe in {"usage-503", "usage-timeout"}:
+        original_delivery = Execution._send_delivery
+
+        async def observe_delivery(self, *args, **kwargs):
+            token = fixture_delivery.set(True)
+            try:
+                return await original_delivery(self, *args, **kwargs)
+            finally:
+                fixture_delivery.reset(token)
+
+        Execution._send_delivery = observe_delivery
+
     if lock_probe:
         original_invoke = Execution.invoke
 
@@ -390,6 +405,14 @@ def main():
             from auralisy_intelligence.contracts import digest
 
             diagnostic["payload_digest"] = digest(payload)
+            diagnostic["flush_stage"] = "delivery" if fixture_delivery.get() else "footer"
+            if (
+                lock_probe == "usage-503"
+                and payload["invocation_id"] == fixture.usage_target
+                and not fixture_delivery.get()
+            ):
+                fixture.event("usage_footer_deferred", **diagnostic)
+                raise ControlUnavailable("FIXTURE_DEFERRED_USAGE")
         if operation == "delivery" and lock_probe:
             kind = payload["kind"]
             body = payload["payload"]

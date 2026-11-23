@@ -396,7 +396,7 @@ class Execution:
 
     async def _flush_usage_locked(
         self, only: set[str] | None = None, *, deadline: float | None = None
-    ) -> None:
+    ) -> str | None:
         if deadline is None:
             deadline = self.clock.now() + self.receipt_timeout_seconds
         for identifier, receipt in list(self.pending_usage.items()):
@@ -420,7 +420,7 @@ class Execution:
                     reason = "OTHER"
                 self._usage_failures[identifier] = reason
                 self._receipt_backoff_until = self.clock.now() + self.receipt_timeout_seconds
-                break
+                return reason
             self.pending_usage.pop(identifier, None)
             self._usage_failures.pop(identifier, None)
             if settlement["status"] == "SETTLED":
@@ -428,6 +428,7 @@ class Execution:
             if settlement["settlement_seq"] > self._settlement_seq:
                 self._settlement_seq = settlement["settlement_seq"]
                 self.lanes = deepcopy(settlement["lanes"])
+        return None
 
     async def deliver(
         self,
@@ -509,11 +510,13 @@ class Execution:
                 )
                 if identifier in self.delivery_results:
                     return deepcopy(self.delivery_results[identifier])
-                await self._flush_usage_locked(required)
+                blocking_failure = await self._flush_usage_locked(required)
                 blocked = required.intersection(self.pending_usage)
                 if blocked:
+                    # The failed receipt blocked all later receipts in this flush.
+                    retryable = {"LOCK_CONTENTION", "RECEIPT_TIMEOUT"}
                     if all(
-                        self._usage_failures.get(item) in {"LOCK_CONTENTION", "RECEIPT_TIMEOUT"}
+                        (blocking_failure or self._usage_failures.get(item)) in retryable
                         for item in blocked
                     ):
                         raise RetryableUsageUnavailable("USAGE_SETTLEMENT_PENDING")
