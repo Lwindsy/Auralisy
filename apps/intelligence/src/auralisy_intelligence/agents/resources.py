@@ -25,6 +25,8 @@ class Job:
     quota_record: list | None = None
     quota_group: str = "default"
     context: object = field(default_factory=copy_context)
+    reserve: int = 0
+    settled: bool = False
 
 
 class ServiceResources:
@@ -43,8 +45,9 @@ class ServiceResources:
         window_seconds=60.0,
         quota_groups=None,
         binding_groups=None,
+        search_reservation=32_768,
     ):
-        values = (model, search, read, cpu, per_host, background, pending)
+        values = (model, search, read, cpu, per_host, background, pending, search_reservation)
         if any(type(v) is not int or v < 1 for v in values):
             raise ValueError("INVALID_RESOURCE_LIMITS")
         if background > model or window_seconds <= 0:
@@ -78,6 +81,14 @@ class ServiceResources:
         self.counts = dict.fromkeys(self.limits, 0)
         self.per_host, self.background, self.max_pending = per_host, background, pending
         self.rpm, self.tpm, self.window = rpm, tpm, window_seconds
+        # Hosted search context cannot be sized before sending, but completed searches report
+        # usage of about 9-13K tokens. Holding the full input ceiling (about 181K) while a search
+        # is in flight let fewer than a dozen searches share a 2M TPM group and starved concurrent
+        # rounds. In flight we hold this bound instead; completion replaces it with reported
+        # usage, and unknown usage falls back to the full ceiling.
+        self.search_reservation = search_reservation
+        # Per (scope, candidate key): time spent with queued work and nothing running.
+        self.blocked = {}
         self.pending = []
         self.running = {}
         self.cancelling = set()
@@ -141,7 +152,7 @@ class ServiceResources:
         if job.resource in {"model", "search"} and self.quotas:
             if (
                 len(self.history[job.quota_group]) >= self.quotas[job.quota_group]["rpm"]
-                or sum(t for _, t in self.history[job.quota_group]) + job.tokens
+                or sum(t for _, t in self.history[job.quota_group]) + job.reserve
                 > self.quotas[job.quota_group]["tpm"]
             ):
                 return False
@@ -179,8 +190,8 @@ class ServiceResources:
             if job.resource == "model":
                 self.last_lane = job.background
             if job.resource in {"model", "search"} and self.quotas:
-                # Reserve the upper bound while the provider call is in flight.
-                job.quota_record = [float("inf"), job.tokens]
+                # Reserve the in-flight bound while the provider call is running.
+                job.quota_record = [float("inf"), job.reserve]
                 self.history[job.quota_group].append(job.quota_record)
             self.counts[job.resource] += 1
             if job.host:
@@ -188,6 +199,7 @@ class ServiceResources:
             task = job.context.run(asyncio.create_task, self._execute(job))
             self.running[task] = job
             task.add_done_callback(lambda t, j=job: self._finished(t, j))
+            self._touch(job.scope, job.key)
         expiries = [
             record[0]
             for records in self.history.values()
@@ -203,16 +215,17 @@ class ServiceResources:
         try:
             result = await job.factory()
             if (
-                job.resource == "search"
-                and job.quota_record is not None
+                job.quota_record is not None
                 and isinstance(result, CallResult)
                 and result.outcome == "COMPLETED"
                 and result.usage.input_tokens is not None
                 and result.usage.output_tokens is not None
             ):
-                # Hosted search can add context we cannot size before sending.
-                # Its reported usage replaces the context ceiling in the TPM window.
+                # Reported usage replaces the reservation for the rest of the TPM window. Model
+                # inputs were bounded by their UTF-8 byte count, far above their token count, and
+                # kept that bound for a full minute after finishing.
                 job.quota_record[1] = result.usage.input_tokens + result.usage.output_tokens
+                job.settled = True
             if not job.future.done():
                 job.future.set_result(result)
         except asyncio.CancelledError:
@@ -224,6 +237,9 @@ class ServiceResources:
     def _finished(self, task, job):
         if job.quota_record is not None:
             job.quota_record[0] = monotonic()
+            if not job.settled and job.reserve < job.tokens:
+                # Unknown usage keeps the full ceiling, as before the in-flight bound.
+                job.quota_record[1] = job.tokens
         if task.cancelled():
             job.future.cancel()
         self.running.pop(task, None)
@@ -234,6 +250,20 @@ class ServiceResources:
             if not self.hosts[job.host]:
                 del self.hosts[job.host]
         self._dispatch()
+        self._touch(job.scope, job.key)
+
+    def _touch(self, scope, key):
+        """Track how long a candidate waits on shared resources with nothing of its own running."""
+        if key is None:
+            return
+        queued = any(j.scope is scope and j.key == key for j in self.pending)
+        active = any(j.scope is scope and j.key == key for j in self.running.values())
+        total, since = self.blocked.get((scope, key), (0.0, None))
+        now = monotonic()
+        if queued and not active:
+            self.blocked[scope, key] = (total, now if since is None else since)
+        elif since is not None:
+            self.blocked[scope, key] = (total + now - since, None)
 
     async def close(self):
         self.closed = True
@@ -299,13 +329,16 @@ class ResourceScope:
             tokens,
             quota_group=quota_group,
         )
+        job.reserve = min(tokens, service.search_reservation) if resource == "search" else tokens
         service.pending.append(job)
         service._dispatch()
+        service._touch(self, key)
         try:
             return await future
         except asyncio.CancelledError:
             if job in service.pending:
                 service.pending.remove(job)
+                service._touch(self, key)
             tasks = [t for t, j in service.running.items() if j is job]
             for task in tasks:
                 if task not in service.cancelling:
@@ -328,6 +361,11 @@ class ResourceScope:
 
         return await self.run("cpu", compute)
 
+    def blocked_seconds(self, key):
+        """Seconds this key has waited on shared resources while none of its work was running."""
+        total, since = self.service.blocked.get((self, key), (0.0, None))
+        return total + (monotonic() - since if since is not None else 0.0)
+
     def prioritize(self, key, priority):
         for job in self.service.pending:
             if job.scope is self and job.key == key:
@@ -339,6 +377,7 @@ class ResourceScope:
             if job.scope is self and job.key == key:
                 self.service.pending.remove(job)
                 job.future.cancel()
+        self.service._touch(self, key)
         self.service._dispatch()
 
     async def close(self):
@@ -354,6 +393,7 @@ class ResourceScope:
                 service.cancelling.add(task)
                 task.cancel()
         await drain(tasks)
+        service.blocked = {k: v for k, v in service.blocked.items() if k[0] is not self}
         active_sessions = {j.scope.session for j in service.pending} | {
             j.scope.session for j in service.running.values()
         }

@@ -1,12 +1,38 @@
 """Publish each accepted short review as its candidate finishes."""
 
 import asyncio
+from time import monotonic
 
 from auralisy_intelligence.album_reviews import AlbumDossier
 
 from .background import RoundPipeline
 
 CANDIDATE_TIMEOUT_SECONDS = 20
+# Time a candidate spends queued behind other rounds for shared model, search or read capacity
+# extends its deadline up to this much. The round deadline still bounds the whole execution.
+CANDIDATE_QUEUE_CREDIT_SECONDS = 60
+
+
+async def run_with_active_timeout(awaitable, timeout, waited, credit):
+    """Like asyncio.wait_for, but seconds reported by waited() (capped at credit) do not count.
+
+    Under concurrency a fixed wall-clock budget was spent waiting for shared capacity, so
+    candidates failed as CANDIDATE_TIMEOUT before their own work had run.
+    """
+    task = asyncio.ensure_future(awaitable)
+    started = monotonic()
+    try:
+        while True:
+            remaining = started + timeout + min(waited(), credit) - monotonic()
+            if remaining <= 0:
+                raise asyncio.TimeoutError
+            done, _ = await asyncio.wait({task}, timeout=remaining)
+            if done:
+                return task.result()
+    finally:
+        if not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
 
 
 class ProgressivePipeline(RoundPipeline):
@@ -31,8 +57,9 @@ class ProgressivePipeline(RoundPipeline):
 
     async def candidate(self, execution, work, candidate):
         identifier = candidate["release_group_id"]
+        blocked = getattr(getattr(execution, "scheduler", None), "blocked_seconds", None)
         try:
-            result = await asyncio.wait_for(
+            result = await run_with_active_timeout(
                 self.research.run(
                     execution,
                     candidate,
@@ -40,6 +67,8 @@ class ProgressivePipeline(RoundPipeline):
                     known_read_refs=work.read_refs.get(identifier),
                 ),
                 CANDIDATE_TIMEOUT_SECONDS,
+                (lambda: blocked(identifier)) if blocked else (lambda: 0.0),
+                CANDIDATE_QUEUE_CREDIT_SECONDS,
             )
         except asyncio.TimeoutError:
             dossier = execution.dossiers.get(identifier) or AlbumDossier(

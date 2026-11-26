@@ -350,3 +350,114 @@ def test_example_quota_mapping_covers_all_configured_bindings():
     assert service.group_for_binding("long-write-terra") == "astra_sol_terra"
     assert service.group_for_binding("screen-gpt-6-luna-closeout") == "luna"
     asyncio.run(service.close())
+
+
+def test_completed_model_call_releases_unused_tokens():
+    async def scenario():
+        service = ServiceResources(rpm=100, tpm=100)
+        scope = service.scope("round", "session")
+
+        async def model():
+            return CallResult(usage=Usage(input_tokens=1, output_tokens=1))
+
+        try:
+            # Without the refund the second 90-token reservation would not fit in 100.
+            for _ in range(5):
+                await asyncio.wait_for(scope.run("model", model, tokens=90), 1)
+        finally:
+            await service.close()
+
+    asyncio.run(scenario())
+
+
+def test_model_call_without_usage_keeps_its_reservation():
+    async def scenario():
+        service = ServiceResources(rpm=100, tpm=100)
+        scope = service.scope("round", "session")
+
+        async def model():
+            return CallResult()
+
+        try:
+            await scope.run("model", model, tokens=90)
+            with pytest.raises(asyncio.TimeoutError):
+                await asyncio.wait_for(scope.run("model", model, tokens=90), 0.05)
+        finally:
+            await service.close()
+
+    asyncio.run(scenario())
+
+
+def test_in_flight_searches_hold_the_search_bound_not_the_full_ceiling():
+    async def scenario():
+        service = ServiceResources(search=12, rpm=5000, tpm=2_000_000)
+        scopes = [service.scope(f"r{i}", f"s{i}") for i in range(12)]
+        gate = asyncio.Event()
+        started = []
+
+        async def search(i):
+            started.append(i)
+            await gate.wait()
+            return CallResult(usage=Usage(input_tokens=9000, output_tokens=60))
+
+        tasks = [
+            asyncio.create_task(scope.run("search", lambda i=i: search(i), tokens=181_024))
+            for i, scope in enumerate(scopes)
+        ]
+        try:
+            await asyncio.sleep(0.01)
+            # A full 181K ceiling per search admits only 11 within 2M; the bound admits all 12.
+            assert len(started) == 12
+            gate.set()
+            await asyncio.gather(*tasks)
+        finally:
+            await service.close()
+
+    asyncio.run(scenario())
+
+
+def test_search_with_unknown_usage_falls_back_to_the_full_ceiling():
+    async def scenario():
+        service = ServiceResources(rpm=100, tpm=190, search_reservation=50)
+        scope = service.scope("round", "session")
+
+        async def search():
+            return CallResult(outcome="UNCERTAIN")
+
+        try:
+            await scope.run("search", search, tokens=150)
+            with pytest.raises(asyncio.TimeoutError):
+                await asyncio.wait_for(scope.run("search", search, tokens=150), 0.05)
+        finally:
+            await service.close()
+
+    asyncio.run(scenario())
+
+
+def test_blocked_seconds_count_only_queued_time_with_nothing_running():
+    async def scenario():
+        service = ServiceResources(model=1, background=1)
+        busy, waiting = service.scope("a", "a"), service.scope("b", "b")
+        release = asyncio.Event()
+
+        async def hold():
+            await release.wait()
+
+        async def quick():
+            await asyncio.sleep(0.05)
+
+        holder = asyncio.create_task(busy.run("model", hold, key="x"))
+        await asyncio.sleep(0)
+        queued = asyncio.create_task(waiting.run("model", quick, key="c"))
+        await asyncio.sleep(0.1)
+        assert waiting.blocked_seconds("c") >= 0.09
+        assert busy.blocked_seconds("x") == 0
+        release.set()
+        await asyncio.gather(holder, queued)
+        total = waiting.blocked_seconds("c")
+        assert 0.09 <= total < 0.14
+        await asyncio.sleep(0.05)
+        assert waiting.blocked_seconds("c") == total
+        await service.close()
+
+    asyncio.run(scenario())
