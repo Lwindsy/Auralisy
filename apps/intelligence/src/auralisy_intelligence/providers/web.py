@@ -304,6 +304,7 @@ class ToolGateway:
                         response.body,
                         response.headers.get("content-type", ""),
                         current,
+                        web_parse=True,
                     )
                     if not text:
                         raise FetchFailure("EMPTY_BODY")

@@ -1,8 +1,9 @@
 """Process-owned admission and execution-scoped cancellation on one event loop."""
 
 import asyncio
+import multiprocessing
 from collections import deque
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from contextvars import copy_context
 from dataclasses import dataclass, field
 from functools import partial
@@ -46,10 +47,13 @@ class ServiceResources:
         quota_groups=None,
         binding_groups=None,
         search_reservation=32_768,
+        web_parse_processes=0,
     ):
         values = (model, search, read, cpu, per_host, background, pending, search_reservation)
         if any(type(v) is not int or v < 1 for v in values):
             raise ValueError("INVALID_RESOURCE_LIMITS")
+        if type(web_parse_processes) is not int or not 0 <= web_parse_processes <= cpu:
+            raise ValueError("INVALID_WEB_PARSE_PROCESSES")
         if background > model or window_seconds <= 0:
             raise ValueError("INVALID_RESOURCE_LIMITS")
         if (rpm is None) != (tpm is None) or any(
@@ -99,6 +103,13 @@ class ServiceResources:
         self.last_lane = False
         self.timer = None
         self.closed = False
+        self.parse_pool = (
+            ProcessPoolExecutor(
+                web_parse_processes, mp_context=multiprocessing.get_context("spawn")
+            )
+            if web_parse_processes
+            else None
+        )
         self.pool = ThreadPoolExecutor(max_workers=cpu, thread_name_prefix="auralis-cpu")
 
     def group_for_binding(self, binding):
@@ -272,6 +283,8 @@ class ServiceResources:
         scopes = {j.scope for j in self.pending} | {j.scope for j in self.running.values()}
         await asyncio.gather(*(scope.close() for scope in scopes))
         self.pool.shutdown(wait=True)
+        if self.parse_pool is not None:
+            self.parse_pool.shutdown(wait=True)
 
 
 async def drain(tasks):
@@ -348,10 +361,11 @@ class ResourceScope:
             service._dispatch()
             raise
 
-    async def cpu(self, function, *args):
+    async def cpu(self, function, *args, web_parse=False):
         async def compute():
             worker = asyncio.get_running_loop().run_in_executor(
-                self.service.pool, partial(function, *args)
+                (self.service.parse_pool if web_parse else None) or self.service.pool,
+                partial(function, *args),
             )
             try:
                 return await asyncio.shield(worker)

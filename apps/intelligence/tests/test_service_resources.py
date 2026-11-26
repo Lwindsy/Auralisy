@@ -1,6 +1,7 @@
 """Service-wide contention, fair admission and physical cancellation."""
 
 import asyncio
+import os
 import threading
 
 import pytest
@@ -459,5 +460,18 @@ def test_blocked_seconds_count_only_queued_time_with_nothing_running():
         await asyncio.sleep(0.05)
         assert waiting.blocked_seconds("c") == total
         await service.close()
+
+    asyncio.run(scenario())
+
+
+def test_parse_pool_runs_only_web_parsing_in_a_child_process():
+    async def scenario():
+        service = ServiceResources(cpu=2, web_parse_processes=2)
+        try:
+            scope = service.scope("owner", "session")
+            assert await scope.cpu(os.getpid) == os.getpid()
+            assert await scope.cpu(os.getpid, web_parse=True) != os.getpid()
+        finally:
+            await service.close()
 
     asyncio.run(scenario())
