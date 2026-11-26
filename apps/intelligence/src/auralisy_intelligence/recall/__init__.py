@@ -72,18 +72,41 @@ class RecallEngine:
                 raise ValueError("invalid audience range")
             if self._full_audience is None:
                 raise ValueError("FULL_AUDIENCE_REQUIRED")
-            counts = self._full_audience.counts
-            mask = np.fromiter(
-                (
-                    minimum <= counts.get(identifier, -1) <= maximum
-                    for identifier in self._model.data.album_ids
-                ),
-                dtype=bool,
-            )
+            counts = self._audience_counts()
+            limit = np.iinfo(np.int64).max
+            if minimum > limit:
+                mask = np.zeros(len(counts), dtype=bool)
+            else:
+                upper = np.inf if maximum > limit else maximum
+                mask = (counts >= minimum) & (counts <= upper)
         return replace(
             _rank(self._model, request, eligibility_mask=mask, fallback_scores=fallback),
             algorithm=self._algorithm,
         )
+
+    def _audience_counts(self) -> np.ndarray:
+        """Full-audience listener counts aligned with album IDs; -1 marks an absent album.
+
+        Built once per bound audience and ID sequence. Testing each of ~828K albums against a
+        dict on every request was a dominant, GIL-holding cost under concurrent rounds.
+        """
+        audience, identifiers = self._full_audience, self._model.data.album_ids
+        cached = getattr(self, "_audience_count_cache", None)
+        if (
+            cached is None
+            or cached[0] is not audience
+            or cached[1] is not identifiers
+            or type(identifiers) is not tuple
+        ):
+            counts = audience.counts
+            values = np.fromiter(
+                (counts.get(identifier, -1) for identifier in identifiers),
+                dtype=np.int64,
+                count=len(identifiers),
+            )
+            cached = (audience, identifiers, values)
+            self._audience_count_cache = cached
+        return cached[2]
 
     def audience(self, album_ids: list[str]) -> dict:
         """Product admission requires the independently bound full population."""

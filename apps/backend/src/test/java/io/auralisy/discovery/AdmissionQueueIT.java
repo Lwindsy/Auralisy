@@ -578,6 +578,24 @@ class AdmissionQueueIT {
     }
 
     @Test
+    void oneTickFillsEveryFreeSlotInFifoOrder() throws Exception {
+        var runs = new java.util.ArrayList<String>();
+        for (int i = 0; i < LIMITS.executions(); i++) {
+            runs.add(queue.accept(input(), LIMITS).run());
+        }
+        var extra = input();
+        var waiting = queue.accept(extra, LIMITS);
+        dispatcher.tick();
+        assertEquals(
+                new java.util.HashSet<>(runs),
+                queue.active().stream()
+                        .map(DispatchQueue.Job::run)
+                        .collect(java.util.stream.Collectors.toSet()));
+        assertEquals(LIMITS.executions(), peer.sends.size());
+        assertEquals("WAITING", queue.status(extra.scope(), waiting.run()).status());
+    }
+
+    @Test
     void busyRuntimeDefersWithoutMaintenanceOrResend() throws Exception {
         queue.accept(input(), LIMITS);
         dispatcher.tick();

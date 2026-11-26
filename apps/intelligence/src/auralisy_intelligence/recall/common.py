@@ -118,6 +118,31 @@ def weighted_preferences(items: tuple[Preference, ...], weights: WeightConfig) -
     return result
 
 
+def id_positions(data: RecallDataset) -> tuple[dict[str, int], dict[str, int]]:
+    """Album and tag positions, built once per ID tuple rather than on every request.
+
+    Profiling concurrent rounds showed rebuilding the ~828K-album index (and a set of the same
+    IDs) several times per recall as its dominant, GIL-holding cost. The cache holds the ID
+    tuples themselves and is rebuilt if either is replaced. Mutable list inputs are not cached.
+    """
+    if type(data.album_ids) is not tuple or type(data.tag_ids) is not tuple:
+        return _build_positions(data.album_ids), _build_positions(data.tag_ids)
+    cached = data.__dict__.get("_id_positions")
+    if cached is None or cached[0] is not data.album_ids or cached[1] is not data.tag_ids:
+        cached = (
+            data.album_ids,
+            data.tag_ids,
+            _build_positions(data.album_ids),
+            _build_positions(data.tag_ids),
+        )
+        data.__dict__["_id_positions"] = cached
+    return cached[2], cached[3]
+
+
+def _build_positions(values) -> dict[str, int]:
+    return {value: index for index, value in enumerate(values)}
+
+
 def validate_request(
     data: RecallDataset, request: RecallRequest, weights: WeightConfig = WeightConfig()
 ) -> None:
@@ -128,7 +153,8 @@ def validate_request(
         raise ValueError("limit must be a positive integer")
     if request.mode not in ("familiar", "explore", "surprise"):
         raise ValueError("unknown exploration mode")
-    albums, tags = set(data.album_ids), set(data.tag_ids)
+    album_positions, tag_positions = id_positions(data)
+    albums, tags = album_positions.keys(), tag_positions.keys()
     seeds = weighted_preferences(request.seeds, weights)
     preferred_tags = weighted_preferences(request.tags, weights)
     if set(seeds) - albums or set(preferred_tags) - tags:
@@ -178,8 +204,7 @@ def query_weights(
     extra mass simply because it has more graph neighbors.
     """
     validate_request(data, request, weights)
-    album_index = {value: index for index, value in enumerate(data.album_ids)}
-    tag_index = {value: index for index, value in enumerate(data.tag_ids)}
+    album_index, tag_index = id_positions(data)
     seeds = {
         album_index[key]: value
         for key, value in weighted_preferences(request.seeds, weights).items()

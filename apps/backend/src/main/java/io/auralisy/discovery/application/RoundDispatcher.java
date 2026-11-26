@@ -172,15 +172,16 @@ public final class RoundDispatcher {
                                     diagnostics.skipped(phase, failure, execution);
                                 }
                             }
-                        phase = CLAIM;
-                        execution = null;
-                        if (queue.ready(boot)) {
+                        // Claim each FIFO head in its own short transaction.
+                        for (int claimed = 0; claimed < limits.executions(); claimed++) {
+                            phase = CLAIM;
+                            execution = null;
+                            if (!queue.ready(boot)) break;
                             var next = queue.claim(boot, limits);
-                            if (next != null) {
-                                phase = SEND;
-                                execution = next.execution();
-                                send(next);
-                            }
+                            if (next == null) break;
+                            phase = SEND;
+                            execution = next.execution();
+                            send(next);
                         }
                     } catch (RuntimeException failure) {
                         // PostgreSQL lock contention is local, not evidence of a lost Python
